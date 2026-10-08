@@ -16,7 +16,7 @@ export const draftFile = (home: string, path: string): string =>
   `${home.replace(/\/$/, '')}/${DRAFT_DIR}/${hashPath(path)}.txt`
 
 // The editor's colors, from the theme (`editorColors` below).
-export type EditorColors = {
+type EditorColors = {
   text: string
   gutter: string // line numbers
   caret: string // the caret cell's background

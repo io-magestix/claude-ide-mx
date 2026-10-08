@@ -8,8 +8,8 @@ export type Pos = { line: number; col: number }
 // `goal` is the sticky column of vertical moves; any other op drops it.
 export type Cursor = { anchor: Pos; head: Pos; goal?: number }
 // Replace `old.length` lines at `at` with `neu` (the inverse swaps the two).
-export type LineEdit = { at: number; old: string[]; neu: string[] }
-export type Step = {
+type LineEdit = { at: number; old: string[]; neu: string[] }
+type Step = {
   edits: LineEdit[]
   before: Cursor[]
   after: Cursor[]
@@ -117,7 +117,7 @@ export const isDirty = (buffer: Buffer, original: string): boolean => {
   return pos !== original.length
 }
 
-export const textOf = (buffer: Buffer, from: Pos, to: Pos): string => {
+const textOf = (buffer: Buffer, from: Pos, to: Pos): string => {
   const { lines } = buffer
   if (from.line === to.line) return lines[from.line]!.slice(from.col, to.col)
   const mid = lines.slice(from.line + 1, to.line)
@@ -380,8 +380,8 @@ const wordAt = (line: string, col: number): [number, number] | undefined => {
 
 // ----------------------------------------------------------------- movement
 
-export type Dir = 'left' | 'right' | 'up' | 'down'
-export type MoveOpts = { select?: boolean; word?: boolean }
+type Dir = 'left' | 'right' | 'up' | 'down'
+type MoveOpts = { select?: boolean; word?: boolean }
 
 const withCursors = (buffer: Buffer, cursors: Cursor[]): Buffer => ({
   ...buffer,
@@ -1080,7 +1080,7 @@ export const KEYMAPS: Record<'jetbrains' | 'vscode', Keymap> = {
   },
 }
 
-export type Chord = {
+type Chord = {
   key: string
   ctrl: boolean
   meta: boolean
@@ -1222,13 +1222,13 @@ export const keyOp = (event: ClientKeyEvent, keymap: Keymap): Action | undefined
 
 // ----------------------------------------------------------------- dispatch
 
-export type ActionCtx = {
+type ActionCtx = {
   // From `commentOf(language)`.
   comment?: string
   // Rows a page move covers (the viewport height); default 20.
   rows?: number
 }
-export type ActionResult = {
+type ActionResult = {
   buffer: Buffer
   // Text for `$.ui.copy` (copy, cut).
   copy?: string

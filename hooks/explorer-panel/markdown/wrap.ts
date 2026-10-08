@@ -7,7 +7,7 @@ import type { Span, SpanStyle } from './rows'
 import { colsOf, expandTabs, widthOf } from '../../shared/hscroll'
 
 /** A run of inline text in one style; `nb` keeps its spaces unbreakable (code spans, kbd). */
-export type Piece = { text: string; style?: SpanStyle; nb?: boolean }
+type Piece = { text: string; style?: SpanStyle; nb?: boolean }
 /** `null` is a hard break (B4, `<br>`). */
 export type Pieces = (Piece | null)[]
 

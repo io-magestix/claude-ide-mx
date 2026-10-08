@@ -5,12 +5,12 @@
 // Unicode shapes, the role's color telling the kinds apart; `off` none.
 import type { Entry } from './tree'
 
-export type FileIcons = 'off' | 'nerd' | 'basic'
+type FileIcons = 'off' | 'nerd' | 'basic'
 
 // The theme color an icon is drawn in (`Theme` tokens of the same name).
-export type IconRole = 'accent' | 'info' | 'success' | 'warning' | 'danger' | 'muted' | 'text'
+type IconRole = 'accent' | 'info' | 'success' | 'warning' | 'danger' | 'muted' | 'text'
 
-export type Icon = { glyph: string; role: IconRole }
+type Icon = { glyph: string; role: IconRole }
 
 type Kind = { nerd: string; role: IconRole }
 

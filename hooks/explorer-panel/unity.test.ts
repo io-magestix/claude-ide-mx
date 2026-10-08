@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { classify, hasRefs, metaGuid, parseGrep, refsOf } from './unity'
+import { classify, hasRefs, parseGrep, refsOf } from './unity'
 
 const A = 'a'.repeat(32)
 

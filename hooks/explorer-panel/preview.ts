@@ -5,7 +5,7 @@ export type CustomEngine = { cmd: string[]; as: 'text' | 'code' | 'markdown' | '
 
 export type Engine = 'code' | 'markdown' | 'image' | 'svg' | { custom: CustomEngine }
 
-export const ENGINES: Readonly<Record<string, Exclude<Engine, { custom: CustomEngine }>>> = {
+const ENGINES: Readonly<Record<string, Exclude<Engine, { custom: CustomEngine }>>> = {
   md: 'markdown',
   markdown: 'markdown',
   mdx: 'markdown',
@@ -115,8 +115,8 @@ export function parseEngines(json: string): {
 export const CELL_W = 10 // assumed pixels per terminal column
 export const CELL_H = 20 // assumed pixels per terminal row
 // The `Image` element's limit on each side: a large Preview is filled, not capped.
-export const MAX_COLUMNS = 255
-export const MAX_ROWS = 255
+const MAX_COLUMNS = 255
+const MAX_ROWS = 255
 
 // Cells (columns x rows) that fit the room with the picture's aspect, given ~10x20 px cells.
 export function fitCells(
@@ -156,7 +156,7 @@ const CODERS: Readonly<Record<string, string>> = {
 }
 
 // The longest side of a picture ImageMagick converts, in px.
-export const CONVERT_MAX_PX = 2048
+const CONVERT_MAX_PX = 2048
 
 // argv converting `src` to a PNG at `out` (first frame of a gif); undefined
 // for an extension ImageMagick isn't trusted with. ImageMagick reads `src`

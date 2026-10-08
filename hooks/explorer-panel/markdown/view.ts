@@ -76,7 +76,7 @@ export function localPath(written: string, file: string, root: string): string |
   return path === root || path.startsWith(root === '/' ? '/' : root + '/') ? path : undefined
 }
 
-export type LinkTarget =
+type LinkTarget =
   | { kind: 'anchor'; slug: string }
   | { kind: 'file'; path: string; slug?: string }
   | { kind: 'url'; url: string }

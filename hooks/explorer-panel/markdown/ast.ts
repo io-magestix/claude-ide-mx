@@ -25,10 +25,10 @@ export type Heading = LineRange & {
 }
 
 /** B3 paragraph; soft/hard breaks (B4) are inline nodes. */
-export type Paragraph = LineRange & { type: 'paragraph'; inlines: Inline[] }
+type Paragraph = LineRange & { type: 'paragraph'; inlines: Inline[] }
 
 /** B6 `---` / `***` / `___`, and an HTML `<hr>` block (B20). */
-export type ThematicBreak = LineRange & { type: 'thematicBreak' }
+type ThematicBreak = LineRange & { type: 'thematicBreak' }
 
 /** B7 block quote; `alert` set for a GitHub alert (B8, top-level quotes only; the `[!X]` line removed). */
 export type Quote = LineRange & { type: 'quote'; alert?: AlertKind; children: Block[] }
@@ -72,10 +72,10 @@ export type Table = LineRange & {
  * Otherwise `inlines` is the content with tags handled the I12 way (known tags
  * mapped, `<br>` a hardBreak, `<img>` an image, unknown tags dropped as `html` inlines).
  */
-export type Html = LineRange & { type: 'html'; comment: boolean; raw: string; inlines: Inline[] }
+type Html = LineRange & { type: 'html'; comment: boolean; raw: string; inlines: Inline[] }
 
 /** B17 front matter at line 1 (`---` yaml or `+++` toml). `text` excludes the fences. */
-export type FrontMatter = LineRange & { type: 'frontMatter'; format: 'yaml' | 'toml'; text: string }
+type FrontMatter = LineRange & { type: 'frontMatter'; format: 'yaml' | 'toml'; text: string }
 
 /** B19 `<details>`: summary row + the blocks up to the matching `</details>`. */
 export type Details = LineRange & { type: 'details'; summary: Inline[]; children: Block[] }
@@ -104,7 +104,7 @@ export type Styled = {
   children: Inline[]
 }
 /** I5 code span (and `<code>`): `text` with newlines folded to spaces, one edge space stripped. */
-export type CodeSpan = { type: 'code'; text: string }
+type CodeSpan = { type: 'code'; text: string }
 /**
  * I6 inline, I7 reference, I8 autolink (`<...>` or a GFM bare URL/email,
  * children = the URL text), I12 `<a href>`. `href` as written (www. gets `http://`,
@@ -113,12 +113,12 @@ export type CodeSpan = { type: 'code'; text: string }
 export type Link = { type: 'link'; href: string; title: string; children: Inline[] }
 /** I9 image; `alt` is plain text. */
 export type Image = { type: 'image'; src: string; title: string; alt: string }
-export type HardBreak = { type: 'hardBreak' }
-export type SoftBreak = { type: 'softBreak' }
+type HardBreak = { type: 'hardBreak' }
+type SoftBreak = { type: 'softBreak' }
 /** An inline HTML tag or comment with no rendering of its own: draw nothing. */
-export type HtmlInline = { type: 'html'; raw: string }
+type HtmlInline = { type: 'html'; raw: string }
 /** I13 `[^label]`, numbered `n` in reference order; unresolved refs stay text. */
-export type FootnoteRef = { type: 'footnoteRef'; label: string; n: number }
+type FootnoteRef = { type: 'footnoteRef'; label: string; n: number }
 
 export type Inline =
   | Text

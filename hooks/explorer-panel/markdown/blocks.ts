@@ -787,7 +787,7 @@ const CELL_SEP = ' │ '
  * a `<td>`/`<th>` after another cell on its row adds ` │ `. Whitespace at a
  * boundary is dropped. Tag nodes nested in inline elements are left alone.
  */
-export function htmlFlow(nodes: readonly Inline[]): Inline[] {
+function htmlFlow(nodes: readonly Inline[]): Inline[] {
   const out: Inline[] = []
   let pending: '' | 'break' | 'cell' = ''
   let lineHasContent = false
@@ -1031,7 +1031,7 @@ function groupDetails(blocks: Block[], ctx: Ctx): Block[] {
 
 // ---- entry ----
 
-export type BlocksResult = {
+type BlocksResult = {
   blocks: Block[]
   refs: Map<string, LinkRef>
   footnotes: FootnoteDef[]

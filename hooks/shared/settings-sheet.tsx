@@ -19,8 +19,10 @@ import { DEFAULTS, GIT_LIMITS } from './settings'
 import type { Theme } from './theme'
 import { Btn, Chip, Field, ModalBtn, RadioGroup, Switch } from './ui'
 
+type FileIcons = NonNullable<SettingsState['fileIcons']>
+
 // The ⚙ Button's key.
-export const SETTINGS_BUTTON = 'settings'
+const SETTINGS_BUTTON = 'settings'
 
 /** The ⚙: a ghost Btn. */
 export function SettingsButton(el: ElementTable, t: Theme, p: { surface?: RenderSurface; isOpen: boolean; onPress: () => void }) {
@@ -33,13 +35,13 @@ export function SettingsButton(el: ElementTable, t: Theme, p: { surface?: Render
   })
 }
 
-export type SheetProps = {
+type SheetProps = {
   surface?: RenderSurface
   cols: number // the panel body's columns
   rows: number // the panel body's rows
   settings: SettingsState
   keymap: 'jetbrains' | 'vscode' // the preset in effect (settings, else userConfig)
-  fileIcons: 'off' | 'nerd' | 'basic' // the icons in effect (settings, else by the terminal font)
+  fileIcons: FileIcons // the icons in effect (settings, else by the terminal font)
   keys: string // the overrides field's text
   keysError?: string
   onChange: (patch: Partial<SettingsState>) => void
@@ -53,7 +55,7 @@ export type SheetProps = {
 const LABEL = 14
 
 /** The card's width in a panel `cols` wide: up to 76, 2 cells of backdrop a side. */
-export const sheetWidth = (cols: number): number => Math.max(24, Math.min(76, cols - 4))
+const sheetWidth = (cols: number): number => Math.max(24, Math.min(76, cols - 4))
 
 /** The Settings sheet: backdrop + card, absolute; draw it last in an unbordered column. */
 export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
@@ -148,7 +150,7 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
           {line(
             'settings:l:icons',
             'File icons',
-            radio('settings:icons', p.fileIcons, [['off', 'Off'], ['nerd', 'Nerd Font'], ['basic', 'Basic']], v => p.onChange({ fileIcons: v as 'off' | 'nerd' | 'basic' })),
+            radio('settings:icons', p.fileIcons, [['off', 'Off'], ['nerd', 'Nerd Font'], ['basic', 'Basic']], v => p.onChange({ fileIcons: v as FileIcons })),
           )}
           {heading('settings:h:git', 'Git')}
           {line(

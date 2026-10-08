@@ -19,17 +19,17 @@ export type Row = {
 
 // Decides whether an entry of `parentPath` is shown. `root` is the tree's
 // root, so a filter can tell the top level apart.
-export type EntryFilter = (entry: Entry, parentPath: string, root: string) => boolean
+type EntryFilter = (entry: Entry, parentPath: string, root: string) => boolean
 
 // Files mode: everything but `.git`.
-export const hideGit: EntryFilter = entry => entry.name !== '.git'
+const hideGit: EntryFilter = entry => entry.name !== '.git'
 
 const UNITY_TOP = new Set(['Assets', 'Packages', 'ProjectSettings'])
 const UNITY_NOISE = new Set(['Library', 'Temp', 'Logs', 'obj', 'UserSettings'])
 
 // Unity: no `.git` or `.meta`; the top level shows only Assets, Packages and
 // ProjectSettings; build and cache dirs are hidden at any depth.
-export const unityFilter: EntryFilter = (entry, parentPath, root) => {
+const unityFilter: EntryFilter = (entry, parentPath, root) => {
   if (entry.name === '.git' || entry.name.endsWith('.meta')) return false
   if (parentPath === root) {
     return entry.kind === 'dir' && UNITY_TOP.has(entry.name)
@@ -126,12 +126,12 @@ const byName = (a: Entry, b: Entry): number => {
 }
 
 // Dirs first, then case-insensitive name order.
-export const sortEntries = (entries: readonly Entry[]): Entry[] => [
+const sortEntries = (entries: readonly Entry[]): Entry[] => [
   ...entries.filter(entry => entry.kind === 'dir').sort(byName),
   ...entries.filter(entry => entry.kind !== 'dir').sort(byName),
 ]
 
-export type FlattenOptions = {
+type FlattenOptions = {
   mode?: Mode
 }
 
@@ -161,7 +161,7 @@ export const flatten = (
   return rows
 }
 
-export type Window<T = Row> = { offset: number; rows: T[] }
+type Window<T = Row> = { offset: number; rows: T[] }
 
 // The slice of `height` rows that keeps `selectedIndex` visible with `margin`
 // rows of context beyond it. Starts from `offset` so scrolling is minimal.
@@ -221,7 +221,7 @@ export const languageOf = (name: string): string | undefined => {
 }
 
 export const MAX_PREVIEW_BYTES = 4 * 1024 * 1024
-export const SNIFF_CHARS = 8192
+const SNIFF_CHARS = 8192
 
 // Text with a NUL in its first 8 KiB is treated as binary.
 export const isBinary = (text: string): boolean =>

@@ -15,7 +15,7 @@ export const isOnRow = (columns: number, x: number, y: number): boolean =>
 
 // What the gesture needs of the row: the part under a cell (`undefined` off
 // the row) and which part is the arrow.
-export type RowGestureOptions<H extends string> = {
+type RowGestureOptions<H extends string> = {
   hitAt: (x: number, y: number) => H | undefined
   isArrow: (hit: H) => boolean
 }

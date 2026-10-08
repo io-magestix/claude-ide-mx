@@ -112,7 +112,7 @@ type CcPalette = {
   warning: string
   userMessageBackground: string
 }
-export const CC_PALETTES: Record<string, CcPalette> = {
+const CC_PALETTES: Record<string, CcPalette> = {
   dark: {
     text: 'rgb(255,255,255)', inactive: 'rgb(153,153,153)', promptBorder: 'rgb(136,136,136)', claude: 'rgb(215,119,87)',
     permission: 'rgb(177,185,249)', success: 'rgb(78,186,101)', error: 'rgb(255,107,128)', warning: 'rgb(255,193,7)',

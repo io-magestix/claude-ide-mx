@@ -25,12 +25,12 @@ const SEP = '\x1f'
 const LOCAL = 'refs/heads/'
 const REMOTE = 'refs/remotes/'
 
-export const BRANCH_FORMAT =
+const BRANCH_FORMAT =
   '%(HEAD)%1f%(refname)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track)'
 
-export const LOG_FORMAT = '%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ad%x1f%s'
+const LOG_FORMAT = '%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%ad%x1f%s'
 
-export const SHOW_FORMAT = '%H%n%an <%ae>%n%ad%n%n%B'
+const SHOW_FORMAT = '%H%n%an <%ae>%n%ad%n%n%B'
 
 const lines = (stdout: string): string[] =>
   stdout.split('\n').filter(line => line !== '')
@@ -98,7 +98,7 @@ export const parseLog = (stdout: string): Commit[] => {
 // Where a commit sits in the graph: `cells` are the glyphs of every lane
 // (2 characters per lane), each with the color index of its lane-run; `color`
 // is the commit's own lane color, kept even when its lane collapses into `…`.
-export type GraphCell = { glyph: string; color: number }
+type GraphCell = { glyph: string; color: number }
 export type GraphRow = { commit: Commit; lane: number; color: number; cells: GraphCell[] }
 
 export const PALETTE_SIZE = 8
@@ -480,7 +480,7 @@ export const sliceDiff = (diff: string, offset: number, rows: number): string =>
 
 // A path list grouped by `/`: a folder or a leaf, with its depth under the
 // root. Leaves come before the folders of a level; folders are sorted.
-export type TreeRow<T> =
+type TreeRow<T> =
   | { kind: 'folder'; key: string; name: string; depth: number; isOpen: boolean }
   | { kind: 'leaf'; item: T; name: string; depth: number }
 

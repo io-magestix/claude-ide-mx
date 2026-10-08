@@ -1,5 +1,5 @@
 export const THUMB = '┃'
-export const TRACK = '│'
+const TRACK = '│'
 export const H_THUMB = '━'
 export const H_TRACK = '─'
 

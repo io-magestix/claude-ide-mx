@@ -9,15 +9,15 @@ export const SPLIT_TITLE = 'IDE'
 
 // The Explorer's share of the split pane's rows (Git takes the rest), until
 // the seam between them is dragged (`explorer.split.panels`).
-export const SPLIT_TOP = 0.7
+const SPLIT_TOP = 0.7
 // The split pane's share of the window's columns when it opens docked.
-export const SPLIT_WIDTH = 0.2
+const SPLIT_WIDTH = 0.2
 // The fewest columns it asks for: below this Git's two columns do not fit.
-export const MIN_SPLIT_COLUMNS = 24
+const MIN_SPLIT_COLUMNS = 24
 // The fewest rows a half keeps: header lines, a framed section, the footer.
 export const MIN_HALF_ROWS = 8
 // Git's rows while the root is not in a repo: its title and the note.
-export const NO_REPO_ROWS = 2
+const NO_REPO_ROWS = 2
 
 // The `$.store` key of the window's columns as `/ide-panels` last measured them
 // (global): the width a session's own opening asks its share of.

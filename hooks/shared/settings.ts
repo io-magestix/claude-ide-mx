@@ -64,7 +64,7 @@ export const resolveTheme = (
   return { ...theme, accent, focus: accent, accentHover: mixHex(accent, '#ffffff', 0.2), accentText: contrast(accent) }
 }
 
-export type KeyConfig = { editorKeymap?: unknown; editorKeys?: unknown }
+type KeyConfig = { editorKeymap?: unknown; editorKeys?: unknown }
 
 // The editor's preset: settings `keymap`, else userConfig `editorKeymap`,
 // else jetbrains.

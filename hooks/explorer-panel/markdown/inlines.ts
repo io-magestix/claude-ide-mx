@@ -9,7 +9,7 @@ import type { Inline, LinkRef } from './ast'
 import { decodeEntity, unescapeString } from './entities'
 
 /** Resolves a footnote label (normalized) to its number, or undefined when not defined. */
-export type FootnoteResolver = (label: string) => number | undefined
+type FootnoteResolver = (label: string) => number | undefined
 
 type LNode = { v: Inline; prev: LNode | null; next: LNode | null; delim?: boolean }
 

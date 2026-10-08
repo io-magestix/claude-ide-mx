@@ -69,7 +69,7 @@ export function contrastRatio(a: string, b: string): number {
 }
 
 /** The terminal's default foreground, as far as a Button label is concerned (light on dark). */
-export const DEFAULT_FG = '#e6e6e6'
+const DEFAULT_FG = '#e6e6e6'
 
 /** `hex` darkened until its contrast with the default foreground is at least 4.5. */
 export function onDefaultFg(hex: string): string {
@@ -88,7 +88,7 @@ export function onDefaultFg(hex: string): string {
 /** Fill for controls that have none on a dark theme: a light theme gets a darkened surface (labels stay light). */
 const chromeBg = (t: Theme): string | undefined => (luminance(t.bg) > 0.5 ? onDefaultFg(t.surface) : undefined)
 
-export type BtnProps = {
+type BtnProps = {
   label: string
   variant?: Variant
   pill?: boolean
@@ -136,7 +136,7 @@ export function Btn(el: ElementTable, t: Theme, p: BtnProps) {
   )
 }
 
-export type BadgeVariant = 'default' | 'secondary' | 'outline' | 'destructive' | 'success'
+type BadgeVariant = 'default' | 'secondary' | 'outline' | 'destructive' | 'success'
 
 export function Badge(el: ElementTable, t: Theme, p: { label: string; variant?: BadgeVariant; key?: string }) {
   const { Text, Box } = el
@@ -167,7 +167,7 @@ export function Chip(el: ElementTable, t: Theme, p: { label: string; selected?: 
   return Btn(el, t, { label: p.label, variant: p.selected === true ? 'primary' : 'secondary', pill: true, onPress: p.onPress, key: p.key, surface: p.surface })
 }
 
-export type TabsProps = {
+type TabsProps = {
   tabs: readonly { id: string; label: string }[]
   selected: string
   onSelect: (id: string) => void
@@ -218,7 +218,7 @@ function Pressable(el: ElementTable, t: Theme, p: { key: string; glyph: string; 
   )
 }
 
-export type FieldProps = {
+type FieldProps = {
   label: string
   children?: RenderChildren // the native Input
   helper?: string
@@ -270,7 +270,7 @@ export function Switch(el: ElementTable, t: Theme, p: { key: string; label: stri
 // Findings: an overlay must be the LAST child of an UNBORDERED wrapper (draw order is z-order, a
 // bordered Box clips its children). Absolute Boxes take numeric top/left; overlays that open
 // downward must have blank room reserved in the flow (later siblings paint over them).
-export type ModalBtnProps = {
+type ModalBtnProps = {
   key: string
   label: string
   variant: 'ghost' | 'primary'

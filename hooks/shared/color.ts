@@ -12,7 +12,7 @@ const CODES: Record<string, number> = {
   cyan: 51,
 }
 
-export const isSessionColor = (name: string): boolean => name in CODES
+const isSessionColor = (name: string): boolean => name in CODES
 
 // `/color`'s answer: "Session color set to: green" or "... reset to default".
 export const parseColorAnswer = (text: string): string | undefined => {
