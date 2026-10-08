@@ -26,12 +26,16 @@ The repo root is the plugin folder:
 ## Commands
 
 ```sh
-claude --plugin-dir .                 # run Claude Code with this mod; saving a file hot-reloads it
-claude plugin validate .              # manifest, hooks and $.state keys checked against the contract
-tsc -p .                              # type-check (needs .claude-plugin/types/, laid down after the first load)
-claude plugin test .                  # run all *.test.ts against the real engine
-claude --debug --plugin-dir .         # debug log: every hook error and every refused ui.render tree
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .          # run Claude Code with this mod; saving a file hot-reloads it
+claude plugin validate .                                        # manifest, hooks and $.state keys checked against the contract
+npx -p typescript tsc -p .                                      # type-check (needs .claude-plugin/types/, laid down after the first load)
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test .        # run all *.test.ts against the real engine
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --debug --plugin-dir .  # debug log: every hook error and every refused ui.render tree
 ```
+
+Function hooks are early access: without `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` the mod does not load and `claude plugin test` runs nothing.
+
+Known baseline (Claude Code 2.1.283): 15 tests fail and `tsc` reports errors before any change (the test kit no longer takes a test's `options`, so the `editorKeys` (2) and `previewEngines` (9) tests fail; the draft-restore (2) and delete-in-a-dirty-editor (2) ones fail too; `FsEntry.mtimeMs`, `isStdoutTruncated` and `onPress` arity drifted). Compare a run against that, not against zero.
 
 Under tmux the engine emits 256 colors; `tmux new-session -e COLORTERM=truecolor -e CLAUDE_CODE_TMUX_TRUECOLOR=1 ...` gives truecolor for live checks.
 
