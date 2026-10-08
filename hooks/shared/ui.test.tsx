@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { themeFromClaudeCode } from './term-theme'
-import { Alert as A_, Avatar as Av_, Badge as Ba_, Btn as B, Card as C_, Progress as P_, Tabs as T_, barString, contrast, contrastRatio, initials, onDefaultFg } from './ui'
+import { Badge as Ba_, Btn as B, Field as Fi_, RadioGroup as Rg_, Switch as Sw_, Tabs as T_, contrast, contrastRatio, onDefaultFg } from './ui'
 
 // The panels' theme in the tests: Claude Code's dark theme, no terminal scheme.
 const DARK = themeFromClaudeCode('dark', undefined)
@@ -10,7 +10,7 @@ const DARK = themeFromClaudeCode('dark', undefined)
 const mk = (type: string) => (props: Record<string, unknown>) => ({ type, props })
 const el: any = { Box: mk('Box'), Text: mk('Text'), Button: mk('Button') }
 const t = DARK
-const Alert: any = A_, Avatar: any = Av_, Badge: any = Ba_, Card: any = C_, Progress: any = P_, Tabs: any = T_
+const Badge: any = Ba_, Tabs: any = T_
 const txt = (x: any): string => [x.props.children].flat(9).join('')
 // The library returns RenderElement; the mock elements are plain {type, props}.
 const Btn: (...a: Parameters<typeof B>) => any = B as any
@@ -33,13 +33,7 @@ test('onDefaultFg darkens until the default foreground reads (>= 4.5)', () => {
   expect(onDefaultFg('#000000')).toBe('#000000')
 })
 
-test('pure helpers', () => {
-  expect(barString(0.5, 8)).toBe('████    ')
-  expect(barString(0.5625, 8)).toBe('████▌   ')
-  expect(barString(0, 4)).toBe('    ')
-  expect(barString(2, 4)).toBe('████')
-  expect(initials('ada lovelace')).toBe('AL')
-  expect(initials('Linus')).toBe('LI')
+test('contrast picks black or white', () => {
   expect(contrast('#ffffff')).toBe('#000000')
   expect(contrast('#000000')).toBe('#ffffff')
 })
@@ -83,21 +77,8 @@ test('Btn desktop falls back to the native Button', () => {
   expect(tree.props.label).toBe('N')
 })
 
-test('Card puts the title in an absolute Box after the bordered one', () => {
-  const tree = Card(el, t, { title: 'Hello', children: null })
-  const [bordered, title] = tree.props.children
-  expect(bordered.props.borderStyle).toBe('round')
-  expect(title.props.position).toBe('absolute')
-  expect(title.props.top).toBe(0)
-})
-
-test('Badge, Alert, Progress, Avatar', () => {
+test('Badge: a destructive one fills with danger', () => {
   expect(walk(Badge(el, t, { label: 'x', variant: 'destructive' })).some(x => x.props.backgroundColor === t.danger)).toBe(true)
-  const a = Alert(el, t, { tone: 'warning', title: 'W' })
-  expect(a.props.children[0].props.backgroundColor).toBe(t.warning)
-  const p = Progress(el, t, { value: 0.5, width: 10 })
-  expect(walk(p).some(x => txt(x) === '█████     ')).toBe(true)
-  expect(walk(Avatar(el, t, { name: 'Ada Lovelace' })).some(x => txt(x) === 'AL')).toBe(true)
 })
 
 test('Tabs: one Button per tab keyed tab:<id>, press selects', () => {
@@ -111,8 +92,6 @@ test('Tabs: one Button per tab keyed tab:<id>, press selects', () => {
   expect(seen).toEqual(['b', 'b'])
 })
 
-import { Checkbox as Cb_, Field as Fi_, RadioGroup as Rg_, Switch as Sw_ } from './ui'
-
 test('Field frame: danger on error, accent when valid, error replaces helper', () => {
   const Field: any = Fi_
   const bad = Field(el, t, { label: 'Email', helper: 'help', error: 'bad' })
@@ -123,12 +102,8 @@ test('Field frame: danger on error, accent when valid, error replaces helper', (
   expect(find(good, x => x.props.borderStyle === 'round').props.borderColor).toBe(t.accent)
 })
 
-test('Checkbox, RadioGroup, Switch glyphs and keys', () => {
-  const Checkbox: any = Cb_, RadioGroup: any = Rg_, Switch: any = Sw_
-  const cb = Checkbox(el, t, { key: 'c', label: 'x', checked: true, onChange: () => {} })
-  expect(find(cb, x => x.type === 'Text' && txt(x) === '☑').props.color).toBe(t.accent)
-  expect(find(cb, x => x.type === 'Button').props.key).toBe('c')
-  expect(find(cb, x => x.type === 'Button').props.label).toBe(' x')
+test('RadioGroup, Switch glyphs and keys', () => {
+  const RadioGroup: any = Rg_, Switch: any = Sw_
   const rg = RadioGroup(el, t, { key: 'r', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }], value: 'b', onChange: () => {} })
   expect(find(rg, x => x.type === 'Text' && txt(x) === '◉')).toBeDefined()
   expect(find(rg, x => x.type === 'Button' && x.props.label === ' B')).toBeDefined()

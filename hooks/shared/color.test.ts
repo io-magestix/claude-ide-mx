@@ -1,12 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { borderOf, lastAgentColor, parseColorAnswer } from './color'
-
-test('borderOf maps session colors to the prompt bar codes', () => {
-  expect(borderOf('green').borderColor).toBe('ansi256(82)')
-  expect(borderOf('').borderColor).toBe('ansi256(45)')
-  expect(borderOf('nope').borderColor).toBe('ansi256(45)')
-})
+import { lastAgentColor, parseColorAnswer } from './color'
 
 test('parseColorAnswer reads /color answers', () => {
   expect(parseColorAnswer('Session color set to: orange')).toBe('orange')

@@ -478,9 +478,6 @@ export const sliceDiff = (diff: string, offset: number, rows: number): string =>
 }
 
 // The first `rows` lines of a unified diff, still a valid diff.
-export const clipDiff = (diff: string, rows: number): string =>
-  sliceDiff(diff, 0, rows)
-
 // A path list grouped by `/`: a folder or a leaf, with its depth under the
 // root. Leaves come before the folders of a level; folders are sorted.
 export type TreeRow<T> =

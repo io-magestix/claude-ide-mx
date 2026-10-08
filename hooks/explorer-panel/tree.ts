@@ -6,7 +6,6 @@ export type Entry = {
   name: string
   kind: 'file' | 'dir' | 'other'
   size: number
-  mtimeMs: number
 }
 
 export type Row = {

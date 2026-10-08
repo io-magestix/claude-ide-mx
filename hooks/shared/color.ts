@@ -14,13 +14,6 @@ const CODES: Record<string, number> = {
 
 export const isSessionColor = (name: string): boolean => name in CODES
 
-// The border props of a pane section in the session color.
-export const borderOf = (name: string) =>
-  ({
-    borderStyle: 'round',
-    borderColor: `ansi256(${CODES[name] ?? CODES['']})`,
-  }) as const
-
 // `/color`'s answer: "Session color set to: green" or "... reset to default".
 export const parseColorAnswer = (text: string): string | undefined => {
   if (/reset to default/.test(text)) return ''

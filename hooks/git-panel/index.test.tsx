@@ -41,8 +41,6 @@ const result = (stdout: string, exitCode = 0, stderr = '') => ({
     exitCode,
     stdout,
     stderr,
-    isStdoutTruncated: false,
-    isStderrTruncated: false,
   },
 })
 

@@ -32,7 +32,6 @@ const entry = (name: string, kind: 'file' | 'dir', size = 10) => ({
   name,
   kind,
   size,
-  mtimeMs: 1_700_000_000_000,
   isLink: false,
 })
 
@@ -62,7 +61,10 @@ const GREP: Record<string, string> = {}
 
 // The repo toplevel per root, for `copy path`; a root not here is no repo.
 const TOPLEVELS: Record<string, string> = { '/proj': '/proj', '/mono/app': '/mono' }
-// Environment variables the fake answers (any other: '/home/u', as HOME).
+// The home the fake answers. Not under /home: on macOS that is an automount,
+// and the engine refuses `$.fs` writes there as a network location.
+const HOME = '/Users/u'
+// Environment variables the fake answers (any other: HOME).
 const ENV: Record<string, string | undefined> = {}
 
 // `git status` output per cwd; a cwd not here answers the default below.
@@ -102,7 +104,7 @@ const TOOLS = new Set<string>()
 const PNG_200x100 = 'iVBORw0KGgoAAAANSUhEUgAAAMgAAABkCAYAAAA='
 
 const ran = (exitCode: number, stdout = '', stderr = '') => ({
-  value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false },
+  value: { exitCode, stdout, stderr },
 })
 
 // Custom preview engine commands the fake machine has, by argv[0]: each gets
@@ -182,15 +184,13 @@ const fake = (
             exitCode: 1,
             stdout: '',
             stderr: `rm: cannot remove '${refused}': Permission denied\n`,
-            isStdoutTruncated: false,
-            isStderrTruncated: false,
           },
         }
       }
       for (const path of paths) removePath(path)
 
       return {
-        value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+        value: { exitCode: 0, stdout: '', stderr: '' },
       }
     }
     // `find "$1" -mindepth 1 | head | wc -l`: the entries under a dir.
@@ -200,8 +200,6 @@ const fake = (
           exitCode: 0,
           stdout: `${descendants(e.argv[4] ?? '')}\n`,
           stderr: '',
-          isStdoutTruncated: false,
-          isStderrTruncated: false,
         },
       }
     }
@@ -215,8 +213,6 @@ const fake = (
           exitCode: top === undefined ? 128 : 0,
           stdout: top === undefined ? '' : top + '\n',
           stderr: top === undefined ? 'fatal: not a git repository\n' : '',
-          isStdoutTruncated: false,
-          isStderrTruncated: false,
         },
       }
     }
@@ -233,8 +229,6 @@ const fake = (
           exitCode: 0,
           stdout: e.argv[1] === 'rev-parse' ? 'main\n' : (STATUS[gitCwd] ?? '?? new.ts\0 M a.ts\0 D b.ts\0 M c.ts\0'),
           stderr: '',
-          isStdoutTruncated: false,
-          isStderrTruncated: false,
         },
       }
     }
@@ -244,8 +238,6 @@ const fake = (
           exitCode: 0,
           stdout: GREP[e.init?.cwd ?? ''] ?? '',
           stderr: '',
-          isStdoutTruncated: false,
-          isStderrTruncated: false,
         },
       }
     }
@@ -257,12 +249,10 @@ const fake = (
         exitCode: hit.length > 0 ? 0 : 1,
         stdout: hit.map(name => name + '\0').join(''),
         stderr: '',
-        isStdoutTruncated: false,
-        isStderrTruncated: false,
       },
     }
   })
-  on('env.get', (_$, e) => ({ value: e.name in ENV ? ENV[e.name] : '/home/u' }))
+  on('env.get', (_$, e) => ({ value: e.name in ENV ? ENV[e.name] : HOME }))
   let cwd = CWD
   on('session.cwd', () => ({ value: cwd }))
   on('session.root', () => ({ value: root() }))
@@ -1226,14 +1216,15 @@ const editing = async (
   root: string,
   files: Record<string, string>,
   opened: unknown[] = [],
+  stored: Record<string, unknown> = {},
 ) => {
-  mock.store(on)
+  mock.store(on, stored)
   fake(on, [], opened, [], () => root)
   TREE[root] = Object.keys(files).map(name => entry(name, 'file', files[name]!.length))
   for (const [name, text] of Object.entries(files)) {
     FILES[root + '/' + name] = text
     delete MTIMES[root + '/' + name]
-    delete FILES[draftFile('/home/u', root + '/' + name)]
+    delete FILES[draftFile(HOME, root + '/' + name)]
   }
   await $.session.start({ cwd: root, surface, isInteractive: true })
   const ui = await $.ui.mount({
@@ -1379,7 +1370,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const { ui, settle, text, title } = await editing($, on, surface, '/ed6', { 'a.ts': 'one\n' })
     await ui.key({ key: 'x', in: 'editor' })
     await settle()
-    const draft = draftFile('/home/u', '/ed6/a.ts')
+    const draft = draftFile(HOME, '/ed6/a.ts')
     expect(FILES[draft]).toBe('xone\n')
 
     await $.session.start({ cwd: '/ed6', surface, isInteractive: true })
@@ -1407,19 +1398,18 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await text()).toBe('1 Qone\n2 tZQwo')
   })
 
-  test(
-    `${surface}: editorKeys rebinds a key`,
-    { options: { editorKeys: '{"duplicateLines":"ctrl+shift+d"}' } },
-    async ($, on) => {
-      const { ui, settle, text } = await editing($, on, surface, '/ed7', { 'a.ts': 'one\n' })
-      await ui.key({ key: 'd', ctrl: true, in: 'editor' })
-      await settle()
-      expect((await text()).match(/one/g)).toHaveLength(1)
-      await ui.key({ key: 'd', ctrl: true, shift: true, in: 'editor' })
-      await settle()
-      expect((await text()).match(/one/g)).toHaveLength(2)
-    },
-  )
+  // The test kit passes no userConfig options, so the overrides come from the
+  // saved Settings, which `mergeKeys` lays over userConfig the same way.
+  test(`${surface}: key overrides rebind a key`, async ($, on) => {
+    const settings = { keys: '{"duplicateLines":"ctrl+shift+d"}' }
+    const { ui, settle, text } = await editing($, on, surface, '/ed7', { 'a.ts': 'one\n' }, [], { settings })
+    await ui.key({ key: 'd', ctrl: true, in: 'editor' })
+    await settle()
+    expect((await text()).match(/one/g)).toHaveLength(1)
+    await ui.key({ key: 'd', ctrl: true, shift: true, in: 'editor' })
+    await settle()
+    expect((await text()).match(/one/g)).toHaveLength(2)
+  })
 
   test(`${surface}: the Edit section's horizontal bar drags the view, the cursor still scrolls it`, async ($, on) => {
     const long = Array.from({ length: 300 }, (_, i) => String.fromCharCode(97 + (i % 26))).join('')
@@ -1846,7 +1836,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const { ui, settle } = await editing($, on, surface, root, { 'a.ts': 'one\n', 'b.ts': 'two\n' })
     await ui.key({ key: 'x', in: 'editor' })
     await settle()
-    const draft = draftFile('/home/u', root + '/a.ts')
+    const draft = draftFile(HOME, root + '/a.ts')
     expect(FILES[draft]).toBe('xone\n')
 
     await ui.press({ key: 'delete' })
@@ -2949,7 +2939,7 @@ test('session.start sweeps day-old converted PNGs once per load', async ($, on) 
   const sweep = [
     'find',
     '/dev/shm',
-    '/home/u/.claude/ide-panes/previews',
+    HOME + '/.claude/ide-panes/previews',
     '-maxdepth',
     '1',
     '-name',

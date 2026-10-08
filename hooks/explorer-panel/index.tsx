@@ -424,12 +424,7 @@ const ensureListed = async ($: EngineInterface, dir: string): Promise<void> => {
   let entries: Entry[] = []
   try {
     const found = await $.fs.list(dir)
-    entries = found.map(({ name, kind, size, mtimeMs }) => ({
-      name,
-      kind,
-      size,
-      mtimeMs,
-    }))
+    entries = found.map(({ name, kind, size }) => ({ name, kind, size }))
   } catch {
     entries = []
   }
@@ -526,9 +521,9 @@ const buildIndex = async (
       ['grep', '-r', '--include=*.meta', '-m1', '^guid:', ...dirs],
       { cwd: root, timeoutMs: 20000 },
     )
-    // exit 1: no matches; 0: matches. Anything else, or cut output, is not
-    // trusted: walk the tree instead.
-    if (ran.exitCode <= 1 && !ran.isStdoutTruncated) {
+    // exit 1: no matches; 0: matches. Anything else is not trusted: walk the
+    // tree instead.
+    if (ran.exitCode <= 1) {
       return parseGrep(ran.stdout, root)
     }
   } catch {

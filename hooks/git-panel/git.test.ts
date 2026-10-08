@@ -20,7 +20,6 @@ import {
   pathTree,
   remoteArgv,
   remoteSummary,
-  clipDiff,
   diffBody,
   diffGutter,
   diffLines,
@@ -225,7 +224,7 @@ test('helpers', () => {
   expect(splitShow('a\nb\n\n')).toEqual(['a', 'b'])
 })
 
-test('clipDiff: cut diff keeps hunk counts valid', () => {
+test('sliceDiff at offset 0: a cut diff keeps hunk counts valid', () => {
   const diff = [
     'diff --git a/x b/x',
     '--- a/x',
@@ -237,10 +236,10 @@ test('clipDiff: cut diff keeps hunk counts valid', () => {
     '+d',
     ' e',
   ].join('\n')
-  expect(clipDiff(diff, 100)).toBe(diff.replace('-1,3 +1,4', '-1,3 +1,4'))
-  expect(clipDiff(diff, 6).split('\n')[3]).toBe('@@ -1,2 +1,1 @@ ctx')
-  expect(clipDiff(diff, 3)).toBe('')
-  expect(clipDiff(PATCH, 12)).toContain('@@')
+  expect(sliceDiff(diff, 0, 100)).toBe(diff)
+  expect(sliceDiff(diff, 0, 6).split('\n')[3]).toBe('@@ -1,2 +1,1 @@ ctx')
+  expect(sliceDiff(diff, 0, 3)).toBe('')
+  expect(sliceDiff(PATCH, 0, 12)).toContain('@@')
 })
 
 const DIFF = [
@@ -275,9 +274,8 @@ test('diffGutter: the widest line number plus two blanks; 0 without a body', () 
   expect(diffGutter('')).toBe(0)
 })
 
-test('sliceDiff: offset 0 is clipDiff, whole diff stays as is', () => {
+test('sliceDiff: offset 0 keeps a whole diff as is', () => {
   expect(sliceDiff(DIFF, 0, 100)).toBe(DIFF)
-  expect(sliceDiff(DIFF, 0, 6)).toBe(clipDiff(DIFF, 6))
   expect(sliceDiff(DIFF, 0, 6).split('\n')[3]).toBe('@@ -1,2 +1,1 @@ ctx')
 })
 

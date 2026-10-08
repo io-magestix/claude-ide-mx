@@ -17,8 +17,8 @@ import {
 } from './tree'
 import type { Entry, Row } from './tree'
 
-const file = (name: string): Entry => ({ name, kind: 'file', size: 1, mtimeMs: 0 })
-const dir = (name: string): Entry => ({ name, kind: 'dir', size: 0, mtimeMs: 0 })
+const file = (name: string): Entry => ({ name, kind: 'file', size: 1 })
+const dir = (name: string): Entry => ({ name, kind: 'dir', size: 0 })
 
 const listings = new Map<string, Entry[]>([
   ['/p', [file('b.txt'), dir('src'), file('A.md'), dir('.git'), dir('Docs')]],

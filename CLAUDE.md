@@ -37,7 +37,7 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --debug --plugin-dir .  # debug log: 
 
 Function hooks are early access: without `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` the mod does not load and `claude plugin test` runs nothing.
 
-Known baseline (Claude Code 2.1.283): 15 tests fail and `tsc` reports errors before any change (the test kit no longer takes a test's `options`, so the `editorKeys` (2) and `previewEngines` (9) tests fail; the draft-restore (2) and delete-in-a-dirty-editor (2) ones fail too; `FsEntry.mtimeMs`, `isStdoutTruncated` and `onPress` arity drifted). Compare a run against that, not against zero.
+Known baseline (Claude Code 2.1.283): the 9 `previewEngines` tests fail, and `tsc` reports the same 9 call sites. The test kit no longer takes a test's `options`, and nothing else in it reaches a plugin's `userConfig` (no `config.set` writer, and an inline test plugin cannot import the real module), so they stay as written until the kit takes options again. Compare a run against that, not against zero. If `tsc` also reports `unknown` tool inputs (`e.file_path`, `e.command`), `.claude-plugin/types/` was written without the built-in tool table (`BuiltinToolInputs` empty): load the mod again or run `/plugin-types .claude-plugin/types`. The tests fake `HOME` as `/Users/u`: on macOS `/home` is an automount, and the engine refuses `$.fs` writes there as a network location.
 
 Under tmux the engine emits 256 colors; `tmux new-session -e COLORTERM=truecolor -e CLAUDE_CODE_TMUX_TRUECOLOR=1 ...` gives truecolor for live checks.
 
