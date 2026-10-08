@@ -853,7 +853,7 @@ test('session.start registers /ide-panels only', async ($, on) => {
 })
 
 test('/ide-panels with the tabs layout opens explorer and git, explorer focused in front', async ($, on) => {
-  settingsStore(on, [['settings', { layout: 'tabs' }]])
+  settingsStore(on, [['settings', { layout: 'tabs', autoOpen: false }]])
   const opened: unknown[] = []
   fake(on, [], opened)
   on('ui.panes', () => ({ value: [] as never }))
@@ -3271,7 +3271,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 // ------------------------------------------------------------ Split layout
 
 test('/ide-panels with no layout saved opens the split pane', async ($, on) => {
-  mock.store(on)
+  settingsStore(on, [['settings', { autoOpen: false }]])
   const opened: unknown[] = []
   fake(on, [], opened)
   on('ui.panes', () => ({ value: [] as never }))
@@ -3288,7 +3288,7 @@ test('/ide-panels with no layout saved opens the split pane', async ($, on) => {
 })
 
 test('/ide-panels with the split layout opens one pane, a fifth of the window wide', async ($, on) => {
-  settingsStore(on, [['settings', { layout: 'split' }]])
+  settingsStore(on, [['settings', { layout: 'split', autoOpen: false }]])
   const opened: unknown[] = []
   fake(on, [], opened)
   on('ui.panes', () => ({ value: [] as never }))
@@ -3623,5 +3623,106 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // both go, then the split pane opens
     expect(panes.closed).toEqual(['ide-explorer', 'ide-git'])
     expect(opened).toEqual(SPLIT_OPENED)
+  })
+}
+
+// ------------------------------------------------------------ Session's own opening
+
+test('a new session opens the split pane by itself, leaving the keyboard, at the width /ide-panels saw', async ($, on) => {
+  settingsStore(on, [['window:columns', 200]])
+  const opened: unknown[] = []
+  fake(on, [], opened)
+  panesFake(on, [])
+  await $.session.start(start('terminal'))
+  expect(opened).toEqual([{ id: 'ide-split', focus: undefined, columns: 40 }])
+})
+
+test('with no width seen yet it asks for the dock\'s own share', async ($, on) => {
+  settingsStore(on)
+  const opened: unknown[] = []
+  fake(on, [], opened)
+  panesFake(on, [])
+  await $.session.start(start('terminal'))
+  expect(opened).toEqual([{ id: 'ide-split', focus: undefined, columns: undefined }])
+})
+
+test('in the tabs layout a new session opens both tabs, neither focused', async ($, on) => {
+  settingsStore(on, [['settings', { layout: 'tabs' }]])
+  const opened: unknown[] = []
+  fake(on, [], opened)
+  panesFake(on, [])
+  await $.session.start(start('terminal'))
+  expect(opened).toEqual(TABS_OPENED.map(o => ({ ...o, focus: undefined })))
+})
+
+for (const [name, entries, isInteractive, initial] of [
+  ['with autoOpen off', [['settings', { autoOpen: false }]], true, []],
+  ['for a -p run', [], false, []],
+  ['while a pane of ours is open already', [], true, ['ide-explorer']],
+] as const) {
+  test(`a new session opens nothing ${name}`, async ($, on) => {
+    settingsStore(on, entries.map(([k, v]) => [k, v] as [string, unknown]))
+    const opened: unknown[] = []
+    fake(on, [], opened)
+    panesFake(on, [...initial])
+    await $.session.start({ ...start('terminal'), isInteractive })
+    expect(opened).toEqual([])
+  })
+}
+
+test('a reload (session.start again, the same session) opens nothing more', async ($, on) => {
+  settingsStore(on)
+  const opened: unknown[] = []
+  fake(on, [], opened)
+  panesFake(on, [])
+  await $.session.start(start('terminal'))
+  await $.session.start(start('terminal'))
+  expect(opened).toHaveLength(1)
+})
+
+test('/ide-panels keeps the window width for the next session', async ($, on) => {
+  const store = settingsStore(on)
+  fake(on)
+  panesFake(on, ['ide-split'])
+  await $.session.start(start('terminal'))
+  await runPanels($)
+  expect(store.get('window:columns')).toBe(200)
+})
+
+for (const reason of ['prompt_input_exit', 'logout', 'other', 'clear', 'resume'] as const) {
+  const isExit = reason !== 'clear' && reason !== 'resume'
+  test(`a session ending by ${reason} ${isExit ? 'closes' : 'leaves'} the panels`, async ($, on) => {
+    settingsStore(on)
+    fake(on)
+    const panes = panesFake(on, ['ide-explorer', 'ide-git'])
+    on('session.end', () => ({ sessionId: 's1' }))
+    await $.session.start(start('terminal'))
+    await $.session.end({ reason, sessionId: 's1', resume: { id: 's1' } })
+    expect(panes.closed).toEqual(isExit ? ['ide-explorer', 'ide-git'] : [])
+  })
+}
+
+test('with autoOpen off an exit leaves the panels', async ($, on) => {
+  settingsStore(on, [['settings', { autoOpen: false }]])
+  fake(on)
+  const panes = panesFake(on, ['ide-split'])
+  on('session.end', () => ({ sessionId: 's1' }))
+  await $.session.start(start('terminal'))
+  await $.session.end({ reason: 'prompt_input_exit', sessionId: 's1', resume: { id: 's1' } })
+  expect(panes.closed).toEqual([])
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`${surface}: the Session switch turns autoOpen off; done saves it`, async ($, on) => {
+    const store = settingsStore(on)
+    fake(on)
+    panesFake(on, ['ide-explorer', 'ide-git'])
+    on('ui.focus', () => ({}))
+    await $.session.start(start(surface))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })
+    await ui.press({ key: 'settings' })
+    await ui.press({ key: 'settings:autoOpen' })
+    await ui.press({ key: 'settings:done' })
+    expect((store.get('settings') as { autoOpen?: boolean }).autoOpen).toBe(false)
   })
 }

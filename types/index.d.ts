@@ -12,6 +12,7 @@ export type SettingsState = {
   gitLimit?: number // commits per page
   changeView?: 'list' | 'tree' // Change Log's Files view while it has none chosen
   layout?: 'tabs' | 'split' // `tabs`: Explorer and Git as two panes; `split`: one pane, Explorer over Git. Absent is `split`
+  autoOpen?: boolean // a new session opens the panels, an exit closes them; absent is true
 }
 
 // The Settings sheet while it is up; session only, never saved.

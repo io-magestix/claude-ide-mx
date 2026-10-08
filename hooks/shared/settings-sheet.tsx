@@ -62,10 +62,10 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
   const s = p.settings
   const surface = p.surface
   const cardW = sheetWidth(p.cols)
-  // The card's rows as drawn below (frame 2, title, 5 headings, 9 rows, the
+  // The card's rows as drawn below (frame 2, title, 5 headings, 10 rows, the
   // keys field 5, separator, footer): centers it; a wrapped row adds one,
   // which the shadow follows by itself.
-  const cardH = 2 + 1 + 5 + 9 + 5 + 1 + 1
+  const cardH = 2 + 1 + 5 + 10 + 5 + 1 + 1
   const area = Math.max(1, p.rows - 1)
   const top = centerOffset(area, cardH + 1)
   const left = centerOffset(p.cols, cardW + 1)
@@ -181,6 +181,17 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
               split: Explorer over Git; on done
             </Text>,
           ])}
+          {line(
+            'settings:l:auto',
+            'Session',
+            Switch(el, t, {
+              key: 'settings:autoOpen',
+              label: 'open on start, close on exit',
+              on: s.autoOpen ?? DEFAULTS.autoOpen,
+              surface,
+              onChange: on => p.onChange({ autoOpen: on }),
+            }),
+          )}
           {line('settings:l:reset', 'Sections', [
             Btn(el, t, { key: 'settings:reset', label: 'reset layout', variant: 'danger', size: 'sm', surface, onPress: p.onResetLayout }),
             <Text key="settings:reset:hint" color={t.muted}>

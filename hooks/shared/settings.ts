@@ -21,6 +21,7 @@ export const DEFAULTS = {
   gitLimit: 200,
   changeView: 'list' as 'list' | 'tree',
   layout: 'split' as 'tabs' | 'split',
+  autoOpen: true,
 } as const
 
 const oneOf = <T extends string>(value: unknown, all: readonly T[]): T | undefined =>
@@ -47,6 +48,7 @@ export const settingsOf = (raw: unknown): SettingsState | undefined => {
   if (changeView !== undefined) out.changeView = changeView
   const layout = oneOf(r.layout, ['tabs', 'split'] as const)
   if (layout !== undefined) out.layout = layout
+  if (typeof r.autoOpen === 'boolean') out.autoOpen = r.autoOpen
 
   return out
 }

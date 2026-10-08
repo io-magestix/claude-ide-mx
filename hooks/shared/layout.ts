@@ -21,6 +21,10 @@ export const MIN_HALF_ROWS = 8
 // Git's rows while the root is not in a repo: its title, the note, `refresh`.
 export const NO_REPO_ROWS = 3
 
+// The `$.store` key of the window's columns as `/ide-panels` last measured them
+// (global): the width a session's own opening asks its share of.
+export const WINDOW_KEY = 'window:columns'
+
 // Every key of Git's half is prefixed, so its elements never share a key
 // with the Explorer's (`refresh`, `settings`, `header`, ...).
 export const GIT_PREFIX = 'git/'

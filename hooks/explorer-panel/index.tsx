@@ -59,7 +59,7 @@ import { lastAgentColor, parseColorAnswer } from '../shared/color'
 import { H_THUMB, H_TRACK, scrollbar } from '../shared/scrollbar'
 import { sliceCols, widest } from '../shared/hscroll'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
-import { GIT_PREFIX, MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
+import { GIT_PREFIX, MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
 import { DEFAULTS, SETTINGS_KEY, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
 import type { Theme } from '../shared/theme'
@@ -104,10 +104,11 @@ let splitFocus: 'explorer' | 'git' = 'explorer'
 const seatedLayout = (): 'tabs' | 'split' => (host === SPLIT_PANE ? 'split' : 'tabs')
 
 // The `$.ui.open` arguments of each pane: the split pane asks for its share
-// of the window (docked; the person's own drag of the dock wins).
+// of the window (docked; the person's own drag of the dock wins), or the dock's
+// own share while no width is known.
 const openArgs = (id: string): PaneOpenArgs =>
   id === SPLIT_PANE
-    ? { id, title: SPLIT_TITLE, columns: splitColumns(seat.windowColumns) }
+    ? { id, title: SPLIT_TITLE, ...(seat.windowColumns > 0 ? { columns: splitColumns(seat.windowColumns) } : {}) }
     : { id, title: id === PANE ? 'Explorer' : 'Git' }
 
 const paneIsOpen = async ($: EngineInterface, id: string): Promise<boolean> =>
@@ -121,8 +122,9 @@ const layoutPending = (): string | undefined => (seat.switching === undefined ? 
 // close first (closing the Explorer closes Git too), then all of this one's
 // open (those already open are only raised). Unsaved text holds the close
 // behind the unsaved-changes bar, which seats `layout` once answered
-// (`finish`); false then, nothing opened yet.
-const openLayout = async ($: EngineInterface, layout: 'tabs' | 'split'): Promise<boolean> => {
+// (`finish`); false then, nothing opened yet. Without `focus` the keyboard stays
+// where it is (a session's own opening).
+const openLayout = async ($: EngineInterface, layout: 'tabs' | 'split', focus = true): Promise<boolean> => {
   seat.switching = layout
   try {
     for (const id of layout === 'split' ? [PANE, GIT_PANE] : [SPLIT_PANE]) {
@@ -133,17 +135,48 @@ const openLayout = async ($: EngineInterface, layout: 'tabs' | 'split'): Promise
   } finally {
     seat.switching = undefined
   }
+  const focused = focus ? ({ focus: true } as const) : {}
   if (layout === 'split') {
-    await $.ui.open({ ...openArgs(SPLIT_PANE), focus: true })
+    await $.ui.open({ ...openArgs(SPLIT_PANE), ...focused })
 
     return true
   }
   await $.ui.open(openArgs(PANE))
   await $.ui.open(openArgs(GIT_PANE))
-  await $.ui.open({ ...openArgs(PANE), focus: true })
+  await $.ui.open({ ...openArgs(PANE), ...focused })
 
   return true
 }
+// Settings `autoOpen` (on by default). A new interactive session opens the
+// panels as the layout says, unless one is open already, leaving the keyboard
+// with the prompt; the width is the window `/ide-panels` last measured. An
+// opening the session made unasked waits undrawn on a narrow terminal (the
+// engine's floor) until it widens or `/ide-panels` runs.
+const openOnStart = async ($: EngineInterface): Promise<void> => {
+  const now = await read($, settings)
+  if (!(now.autoOpen ?? DEFAULTS.autoOpen)) return
+  try {
+    const width = await $.store.get(WINDOW_KEY)
+    if (seat.windowColumns === 0 && typeof width === 'number' && width > 0) seat.windowColumns = width
+    if ((await $.ui.panes()).length > 0) return
+    await openLayout($, now.layout ?? DEFAULTS.layout, false)
+  } catch {
+    // nothing to open panes on
+  }
+}
+
+// The session's exit (/exit, ctrl+c, ctrl+d, logout, a signal; not a /clear or
+// a resume, which go on) closes the panels when `autoOpen` is on.
+const EXIT_REASONS: readonly string[] = ['prompt_input_exit', 'logout', 'other']
+const closeOnExit = async ($: EngineInterface, reason: string): Promise<void> => {
+  if (!EXIT_REASONS.includes(reason) || !((await read($, settings)).autoOpen ?? DEFAULTS.autoOpen)) return
+  try {
+    for (const id of [SPLIT_PANE, PANE, GIT_PANE]) if (await paneIsOpen($, id)) await $.ui.close({ id })
+  } catch {
+    // no panes to ask about
+  }
+}
+
 const MODES: readonly Mode[] = ['files', 'unity']
 
 const explorer = atom<'ide-panes', 'explorer'>(
@@ -2161,6 +2194,8 @@ export const register = (on: On, options?: PluginOptions): void => {
   customCache.clear()
 
   on('session.start', async ($, e, next) => {
+    // A new session's state is unwritten; a reload (the same session) has it.
+    const isNewSession = (await $.state.get({ plugin: 'ide-panes', key: 'explorer' } as const)).version === 0
     // The plugin's one command (one session.start hook per plugin).
     await $.command.register({
       name: 'ide-panels',
@@ -2173,8 +2208,10 @@ export const register = (on: On, options?: PluginOptions): void => {
     if (engineErrors.length > 0) await toast($, engineErrors.join('; '))
     // Converted pictures older loads left behind (once per load).
     await sweepConverted($)
+    const started = await next(e)
+    if (isNewSession && e.isInteractive) await openOnStart($)
 
-    return next(e)
+    return started
   })
 
   // A `/clear`, a resume or a fork goes on under a new session id, its
@@ -2199,6 +2236,8 @@ export const register = (on: On, options?: PluginOptions): void => {
     stash = await takeStash($)
     const left = next.budget.remainingMs
     await removeAllConverted($, Number.isFinite(left) ? Math.max(100, Math.min(2000, left - 200)) : 2000)
+    // After the pictures: the closes find none left to remove.
+    await closeOnExit($, e.reason)
 
     return next(e)
   })
@@ -2265,6 +2304,8 @@ export const register = (on: On, options?: PluginOptions): void => {
   // split pane (its width a share of the window's, measured here).
   on('command.run', { command: 'ide-panels' }, async ($, e) => {
     seat.windowColumns = e.presentation.columns
+    // Kept for the next session's own opening, which has no width to go by.
+    await $.store.set(WINDOW_KEY, e.presentation.columns)
     const layout = (await read($, settings)).layout ?? DEFAULTS.layout
     if (!(await openLayout($, layout))) {
       return { text: 'Unsaved changes in the Explorer: save or discard them on its bar, then the panels switch.' }

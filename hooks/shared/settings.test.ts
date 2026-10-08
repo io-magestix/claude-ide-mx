@@ -69,6 +69,12 @@ test('settingsOf keeps valid fields only', () => {
   expect(DEFAULTS.theme).toBe('claude')
 })
 
+test('settingsOf keeps a boolean autoOpen only', () => {
+  expect(settingsOf({ autoOpen: false })).toEqual({ autoOpen: false })
+  expect(settingsOf({ autoOpen: 'no' })).toEqual({})
+  expect(DEFAULTS.autoOpen).toBe(true)
+})
+
 test('settingsOf keeps a known layout only', () => {
   expect(settingsOf({ layout: 'split' })).toEqual({ layout: 'split' })
   expect(settingsOf({ layout: 'tabs' })).toEqual({ layout: 'tabs' })
