@@ -16,7 +16,8 @@ This is the owner's own Claude Code plugin development repo, and every action in
 
 The repo root is the plugin folder:
 
-- `.claude-plugin/plugin.json`: `{ "name": "ide-panes", "version": "...", "description": "...", "types": "./types/index.d.ts" }`
+- `.claude-plugin/plugin.json`: `{ "name": "ide-panes", "version": "...", "description": "...", "author": {...}, "types": "./types/index.d.ts", "userConfig": {...} }`
+- `.claude-plugin/marketplace.json`: a one-plugin marketplace (`ide-panes`, source `./`): `claude plugin marketplace add io-magestix/claude-ide-mx`, then `claude plugin install ide-panes@ide-panes`. With it present, `claude plugin validate .` checks only the marketplace; validate `.claude-plugin/plugin.json` for the plugin itself. An install copies a version: bump `version` for `claude plugin update` to pick up changes.
 - `hooks/hooks.json`: `{ "modules": ["./register.tsx"] }`
 - `hooks/register.tsx`: entry point, `export const register: Register = (on, options) => { ... }`, with `Register` imported from `'claude-code'`. Feature modules export a named `register(on)`, and the entry imports it by name (`import { register as registerExplorer } from './explorer-panel'`). The validator rejects passing `on` through a namespace import (`explorer.register(on)`).
 - `types/index.d.ts`: the `$.state` contract. Every value kept in `$.state` must be declared in `interface PluginState` under the plugin name, and `claude plugin validate` enforces this.
@@ -27,7 +28,8 @@ The repo root is the plugin folder:
 
 ```sh
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .          # run Claude Code with this mod; saving a file hot-reloads it
-claude plugin validate .                                        # manifest, hooks and $.state keys checked against the contract
+claude plugin validate .claude-plugin/plugin.json               # manifest, hooks and $.state keys checked against the contract
+claude plugin validate .                                        # the marketplace manifest only (`.claude-plugin/marketplace.json`)
 npx -p typescript tsc -p .                                      # type-check (needs .claude-plugin/types/, laid down after the first load)
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test .        # run all *.test.ts against the real engine
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --debug --plugin-dir .  # debug log: every hook error and every refused ui.render tree

@@ -1,0 +1,14 @@
+{
+  "name": "ide-panes",
+  "description": "Marketplace for the ide-panes plugin.",
+  "owner": {
+    "name": "magestix"
+  },
+  "plugins": [
+    {
+      "name": "ide-panes",
+      "source": "./",
+      "description": "An Explorer and a Git panel inside Claude Code: file tree, preview and editor; branches, commit graph and diffs; split or tabbed layout."
+    }
+  ]
+}

@@ -2,13 +2,14 @@
 
 An Explorer and a Git panel inside Claude Code, driven by the mouse (plugin `ide-panes`).
 
-## Run
+## Install
 
 ```sh
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir <path-to-this-repo>
+claude plugin marketplace add io-magestix/claude-ide-mx   # or a local clone's path
+claude plugin install ide-panes@ide-panes                  # user scope by default
 ```
 
-Function hooks are early access in Claude Code; the variable turns them on.
+The plugin uses function hooks, early access in Claude Code: run it with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` set (e.g. exported in your shell profile). To run it from a clone without installing: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir <path>`.
 
 The panels open with each new session and close on exit (Settings → Session). `/ide-panels` opens them by hand.
 
@@ -36,7 +37,8 @@ Plugin options (`/config`): `editorKeymap`, `editorKeys`, `previewEngines` (exte
 ## Develop
 
 ```sh
-claude plugin validate .
+claude plugin validate .claude-plugin/plugin.json   # the plugin: hooks and $.state keys
+claude plugin validate .                              # the marketplace
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test .
 npx -p typescript tsc -p .    # after a first load has generated .claude-plugin/types/
 ```
