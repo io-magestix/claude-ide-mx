@@ -20,11 +20,12 @@ One pane: Explorer on top (70%), Git below (30%), asking for 20% of the window's
 ## Panels
 
 - **Explorer**: file tree (Files, or Unity with `.meta` GUID references) with git change marks (`+` added, `*` edited), preview of code, Markdown, images and SVG, an in-pane editor, new file, delete, copy path, multi-select (ctrl/shift-click).
-- **Git**: branches, commits with a lane graph and per-commit info, the working tree's changes as a tree with diffs, a diff view per commit, `fetch` and `pull --ff-only`.
+- **Git**: branches, commits with a lane graph and per-commit info, the working tree's changes as a tree with diffs, a diff view per commit, `Fetch` and `Pull` (`--ff-only`).
 
 ## Settings (⚙ in the Explorer's title row)
 
-- **Theme**: `Default`, `Match Terminal` (Tabby for now; greyed out in other terminals) or `Match Claude Code` (follows `/theme`).
+The panels always follow Claude Code's `/theme` (painted on Tabby's color scheme when running in Tabby).
+
 - **Accent from /color**: your session color tints the accent and frames.
 - **Session**: open on start, close on exit.
 - Editor keymap (JetBrains or VS Code) and key overrides, panel defaults, reset layout.

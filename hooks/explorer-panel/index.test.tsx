@@ -10,8 +10,11 @@ import { parse } from './markdown/parse'
 import type { MdRow } from './markdown/rows'
 import { KEYMAPS } from './editor'
 import { sessionHex } from '../shared/color'
-import { THEMES } from '../shared/theme'
+import { themeFromClaudeCode } from '../shared/term-theme'
 import { onDefaultFg } from '../shared/ui'
+
+// The panels' theme in the tests: Claude Code's dark theme, no terminal scheme.
+const DARK = themeFromClaudeCode('dark', undefined)
 
 const CWD = '/proj'
 const PLUGIN = 'ide-panes'
@@ -297,7 +300,7 @@ const titleOf = async (ui: Pane): Promise<string> => {
 // terminal, the primary variant of the native Button elsewhere (default theme).
 const isActiveTab = async (ui: Pane, surface: 'terminal' | 'desktop', mode: 'files' | 'unity'): Promise<boolean> =>
   surface === 'terminal'
-    ? (await ui.find({ key: 'tab:' + mode + ':chrome' }))?.props.backgroundColor === onDefaultFg(THEMES.claude.accent)
+    ? (await ui.find({ key: 'tab:' + mode + ':chrome' }))?.props.backgroundColor === onDefaultFg(DARK.accent)
     : (await ui.find({ key: 'tab:' + mode }))?.props.variant === 'primary'
 
 const start = (surface: 'terminal' | 'desktop') => ({
@@ -519,8 +522,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect((await rowOf('/proj/notes.txt'))?.change).toBe('+')
       expect((await rowOf('/proj/src'))?.change).toBe('*')
       expect((await rowOf('/proj/out.log'))?.change).toBeUndefined()
-      expect((await rowOf('/proj/notes.txt'))?.colors?.change).toBe(THEMES.claude.success)
-      expect((await rowOf('/proj/src'))?.colors?.change).toBe(THEMES.claude.warning)
+      expect((await rowOf('/proj/notes.txt'))?.colors?.change).toBe(DARK.success)
+      expect((await rowOf('/proj/src'))?.colors?.change).toBe(DARK.warning)
       await ui.post({ hit: 'arrow' }, { in: 'item:/proj/src' })
       expect((await rowOf('/proj/src/main.ts'))?.change).toBe('*')
       // drawn after the name
@@ -828,8 +831,8 @@ test('focus moving past the window edge scrolls the tree', async ($, on) => {
     plugin: PLUGIN,
     surface: 'terminal',
     component: 'Pane',
-    // 2 header rows, then Files' frame around 4 rows
-    props: { ...PROPS, scroll: { offset: 0, bodyRows: 8 } },
+    // 1 header row, then Files' frame around 4 rows
+    props: { ...PROPS, scroll: { offset: 0, bodyRows: 7 } },
     requestId: 'ide-explorer',
     viewport: VIEWPORT,
   })
@@ -1052,8 +1055,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       plugin: PLUGIN,
       surface,
       component: 'Pane',
-      // 2 header rows, then frames around 9 rows
-      props: { ...PROPS, scroll: { offset: 0, bodyRows: 13 } },
+      // 1 header row, then frames around 9 rows
+      props: { ...PROPS, scroll: { offset: 0, bodyRows: 12 } },
       requestId: 'ide-explorer',
       viewport: VIEWPORT,
     })
@@ -1617,7 +1620,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'new' })
     const field = await ui.find({ key: 'new-file' })
     expect(field?.props.label).toBe('new file in src/')
-    expect(field?.props.submitLabel).toBe('create')
+    expect(field?.props.submitLabel).toBe('Create')
 
     await ui.input({ key: 'new-file', text: ' a/b.ts ' })
     await ui.resize({ columns: 60, rows: 10, in: 'editor' })
@@ -1680,7 +1683,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(FILES[`/nf4-${surface}/a.ts`]).toBe('one\n')
   })
 
-  test(`${surface}: header lines: title, tabs, actions, then the interactive line only while it asks`, async ($, on) => {
+  test(`${surface}: header lines: title, tabs and actions on one row, then the interactive line only while it asks`, async ($, on) => {
     const { ui, settle } = await editing($, on, surface, `/hl-${surface}`, { 'a.ts': 'one\n' })
     const lines = async () =>
       (await ui.findAll({ type: 'Box' }))
@@ -1692,7 +1695,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await lines()).toEqual(['header', 'header:tabs', 'header:actions'])
     expect(await ui.find({ type: 'Text', text: ' Explorer' })).toBeDefined()
     const header = await ui.findAll({ type: 'Box' })
-    expect(controls(header.find(box => box.key === 'header:tabs'))).toEqual(['tab:files', 'tab:unity'])
+    // one title row: the title, a divider, the tabs, a divider, the actions
+    expect(controls(header.find(box => box.key === 'header:tabs'))).toEqual(
+      expect.arrayContaining(['tab:files', 'tab:unity', 'header:actions', 'refresh']),
+    )
+    expect((await ui.findAll({ type: 'Text', text: '|' })).length).toBe(2)
     expect(controls(header.find(box => box.key === 'header:actions'))).toEqual(
       expect.arrayContaining(['refresh', 'new', 'delete']),
     )
@@ -2012,7 +2019,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   const frames = async (ui: Pane) =>
     (await ui.findAll({ type: 'Box' })).filter(box => box.props.borderStyle === 'round')
 
-  test(`${surface}: the theme paints the page, frames, selection and editor`, async ($, on) => {
+  test(`${surface}: the theme paints the frames, selection and editor; the page keeps the terminal's background`, async ($, on) => {
     memoryStore(on, new Map<string, unknown>())
     fake(on)
     await $.session.start(start(surface))
@@ -2024,9 +2031,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
       requestId: 'ide-explorer',
       viewport: VIEWPORT,
     })
-    const t = THEMES.claude
+    const t = DARK
 
-    expect((await ui.findAll({ type: 'Box' })).some(box => box.props.backgroundColor === t.bg)).toBe(true)
+    expect(await pageBg(ui)).toBeUndefined()
     const framed = await frames(ui)
     expect(framed.length).toBe(2)
     for (const box of framed) expect(box.props.borderColor).toBe(t.border)
@@ -2086,7 +2093,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       requestId: 'ide-explorer',
       viewport: VIEWPORT,
     })
-    const t = THEMES.claude
+    const t = DARK
 
     await ui.press({ key: 'row:/proj/notes.txt' })
     expect(await ui.find({ key: 'delete' })).toBeDefined()
@@ -2553,7 +2560,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await rowOf(ui, `${root}/b.txt`)).isSelected).toBe(true)
     expect((await ui.find({ type: 'Code' }))?.text).toContain('bbb')
     expect(toasts.at(-1)).toBe('Deleted 2 items')
-    expect((await ui.find({ key: 'copy' }))?.props.label).not.toBe('copy paths')
+    expect((await ui.find({ key: 'copy' }))?.props.label).not.toBe('Copy Paths')
   })
 
   test(`${surface}: two marked files: no entry count`, async ($, on) => {
@@ -2578,12 +2585,12 @@ for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
     await ui.press({ key: 'mark' })
     expect(await ui.find({ type: 'Text', text: 'src' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'notes.txt' })).toBeDefined()
-    expect((await ui.find({ key: 'copy' }))?.props.label).toBe('copy paths')
+    expect((await ui.find({ key: 'copy' }))?.props.label).toBe('Copy Paths')
     if (surface === 'vscode') {
       expect((await ui.find({ key: 'line:/proj/src' }))?.props.backgroundColor).toBeDefined()
     }
     await ui.press({ key: 'mark' })
-    expect((await ui.find({ key: 'copy' }))?.props.label).toBe('copy path')
+    expect((await ui.find({ key: 'copy' }))?.props.label).toBe('Copy Path')
     expect((await ui.find({ type: 'Code' }))?.text).toContain('hello notes')
   })
 }
@@ -2634,9 +2641,9 @@ test('terminal: a PNG draws as an Image of the file itself, fitted to Preview, w
   const image = await ui.find({ type: 'Image' })
   expect(image?.props.key).toBe('preview:image')
   expect(image?.props.source).toEqual({ file: '/img/pic.png', format: 'png', generation: MTIME })
-  // 200x100 px (aspect 2) in Preview's 75x15 room left under the info row
-  expect(image?.props.columns).toBe(60)
-  expect(image?.props.rows).toBe(15)
+  // 200x100 px (aspect 2) in Preview's 75x16 room left under the info row
+  expect(image?.props.columns).toBe(64)
+  expect(image?.props.rows).toBe(16)
   expect(await ui.find({ type: 'Text', text: /200×100 px · 300 B/ })).toBeDefined()
   expect(converts(calls)).toEqual([])
   // no scrollbars, no source toggle, no edit for a raster image
@@ -2699,14 +2706,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const { ui } = await images($, on, surface, ['magick'])
     await ui.press({ key: 'row:/img/logo.svg' })
     const view = await ui.find({ key: 'preview:view' })
-    expect(view?.props.label).toBe(' source ')
+    expect(view?.props.label).toBe(' Source ')
     expect(await ui.find({ type: 'Code' })).toBeUndefined()
     expect(await ui.find({ key: 'edit' })).toBeUndefined()
 
     await ui.press({ key: 'preview:view' })
     expect((await ui.find({ type: 'Code' }))?.text).toContain('<svg')
     expect(await ui.find({ type: surface === 'terminal' ? 'Image' : 'Svg' })).toBeUndefined()
-    expect((await ui.find({ key: 'preview:view' }))?.props.label).toBe(' rendered ')
+    expect((await ui.find({ key: 'preview:view' }))?.props.label).toBe(' Rendered ')
     // raw svg is code: it can be edited
     expect(await ui.find({ key: 'edit' })).toBeDefined()
 
@@ -2718,7 +2725,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'preview:view' })
     await ui.press({ key: 'row:/img/pic.png' })
     await ui.press({ key: 'row:/img/logo.svg' })
-    expect((await ui.find({ key: 'preview:view' }))?.props.label).toBe(' source ')
+    expect((await ui.find({ key: 'preview:view' }))?.props.label).toBe(' Source ')
   })
 }
 
@@ -2991,7 +2998,7 @@ test('terminal: new starts the new file rendered (previewRaw reset as on any sel
   const { ui } = await images($, on, 'terminal', ['magick'])
   await ui.press({ key: 'row:/img/logo.svg' })
   await ui.press({ key: 'preview:view' })
-  expect((await ui.find({ key: 'preview:view' }))?.props.label).toBe(' rendered ')
+  expect((await ui.find({ key: 'preview:view' }))?.props.label).toBe(' Rendered ')
   await ui.press({ key: 'new' })
   await ui.input({ key: 'new-file', text: 'x.svg' })
   expect(await ui.find({ key: 'editor' })).toBeDefined()
@@ -3039,7 +3046,7 @@ const README = [
 ].join('\n')
 // Preview's rendered width at PROPS: 75 inner columns less the vertical bar.
 const MD_WIDTH = 74
-const MD_ROWS = 16 // Preview's rows at bodyRows 20
+const MD_ROWS = 17 // Preview's rows at bodyRows 20
 const readmeRows = () => layout(parse(README), MD_WIDTH)
 
 const markdowns = async <S extends 'terminal' | 'desktop' | 'vscode'>(
@@ -3122,7 +3129,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ key: 'md:link:2' }))?.props.props).toMatchObject({ segments: [{ text: 'x' }] })
     expect(await ui.find({ key: 'md:link:3' })).toBeUndefined()
     const drawnLink = (await ui.findAll({ type: 'Text', text: 'guide', in: 'md:link:0' })).find(text => text.text === 'guide' && text.props.underline !== undefined)
-    expect(drawnLink?.props).toMatchObject({ underline: true, color: THEMES.claude.accent })
+    expect(drawnLink?.props).toMatchObject({ underline: true, color: DARK.accent })
     // edit is the raw text; no horizontal bar for wrapped rows
     expect(await ui.find({ key: 'edit' })).toBeDefined()
     expect(await ui.find({ key: 'hb:preview' })).toBeUndefined()
@@ -3147,7 +3154,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: the view chip flips rendered markdown to its source as Code and back`, async ($, on) => {
     const { ui } = await markdowns($, on, surface)
     const view = await ui.find({ key: 'preview:view' })
-    expect(view?.props.label).toBe(' source ')
+    expect(view?.props.label).toBe(' Source ')
     await ui.press({ key: 'preview:view' })
     const code = await ui.find({ type: 'Code' })
     expect(code?.text).toContain('# Title')
@@ -3198,7 +3205,7 @@ test('vscode: our renderer draws the rows; links underlined, no Clients', async 
   expect(await ui.find({ type: 'Text', text: /^┌─+┬─+┐$/ })).toBeDefined()
   expect(await ui.find({ key: 'md:link:0' })).toBeUndefined()
   const guide = (await ui.findAll({ type: 'Text', text: 'guide' })).find(text => text.text === 'guide')
-  expect(guide?.props).toMatchObject({ underline: true, color: THEMES.claude.accent })
+  expect(guide?.props).toMatchObject({ underline: true, color: DARK.accent })
   expect((await ui.findAll({ type: 'Link' })).map(link => link.props.href)).toEqual(['https://example.com'])
 })
 
@@ -3228,8 +3235,8 @@ test('desktop: a markdown image is its placeholder row', async ($, on) => {
   const { ui } = await markdowns($, on, 'desktop', PICTURED)
   expect(await ui.find({ type: 'Image' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '🖼 logo' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'para 7' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'para 8' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'para 8' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'para 9' })).toBeUndefined()
 })
 
 test('terminal: a wide code block in a tall Preview draws as several Codes, each under 10000 chars, one row per line', async ($, on) => {
@@ -3338,7 +3345,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountSplit($, on)
     const isActive = async (id: string) =>
       surface === 'terminal'
-        ? (await ui.find({ key: 'git/tab:' + id + ':chrome' }))?.props.backgroundColor === onDefaultFg(THEMES.claude.accent)
+        ? (await ui.find({ key: 'git/tab:' + id + ':chrome' }))?.props.backgroundColor === onDefaultFg(DARK.accent)
         : (await ui.find({ key: 'git/tab:' + id }))?.props.variant === 'primary'
     expect(await isActive('overview')).toBe(true)
     await ui.press({ key: 'git/tab:graph' })
@@ -3590,7 +3597,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-// ------------------------------------------------------------ Outside themes
+// ------------------------------------------------------------ Theme sources
 
 const TABBY_YAML = (name: string, bg: string, fg = '#efefef') =>
   [
@@ -3623,11 +3630,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     return { ui, clock }
   }
 
-  test(`${surface}: Match Terminal in Tabby draws Tabby's scheme and follows a change of it`, async ($, on) => {
+  test(`${surface}: in Tabby the theme paints Tabby's background and follows a change of it`, async ($, on) => {
     envOf({ TERM_PROGRAM: 'Tabby', TABBY_CONFIG_DIRECTORY: '/tabby-cfg' })
     FILES['/tabby-cfg/config.yaml'] = TABBY_YAML('Elementary', '#181818')
     MTIMES['/tabby-cfg/config.yaml'] = 1
-    const { ui, clock } = await mountWith($, on, { theme: 'terminal' })
+    const { ui, clock } = await mountWith($, on, {})
     expect(await pageBg(ui)).toBe('#181818')
 
     // Tabby saves another scheme: the panel follows without a press
@@ -3635,29 +3642,19 @@ for (const surface of ['terminal', 'desktop'] as const) {
     MTIMES['/tabby-cfg/config.yaml'] = 2
     await clock.advance(2000)
     expect(await pageBg(ui)).toBe('#fafafa')
-    // the choice names the terminal
-    await ui.press({ key: 'settings' })
-    expect((await ui.find({ key: 'settings:theme:terminal' }))?.props.label).toContain('Match Terminal (Tabby)')
-    expect(await ui.find({ type: 'Text', text: 'Tabby: Paper' })).toBeDefined()
   })
 
-  test(`${surface}: outside Tabby Match Terminal is greyed out, Not supported; a saved one draws as the default`, async ($, on) => {
+  test(`${surface}: outside Tabby the background is left to the terminal`, async ($, on) => {
     envOf({ TERM_PROGRAM: 'iTerm.app' })
-    const { ui } = await mountWith($, on, { theme: 'terminal' })
-    expect(await pageBg(ui)).toBe(THEMES.claude.bg)
-    await ui.press({ key: 'settings' })
-    expect(await ui.find({ type: 'Text', text: 'this terminal is not supported: drawn as default' })).toBeDefined()
-    // muted text, no Button: nothing to press
-    expect(await ui.find({ key: 'settings:theme:terminal' })).toBeUndefined()
-    expect(await ui.find({ key: 'settings:theme:terminal:off' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '◉ Match Terminal (Not supported)' })).toBeDefined()
+    const { ui } = await mountWith($, on, {})
+    expect(await pageBg(ui)).toBeUndefined()
   })
 
-  test(`${surface}: the claude code theme follows /config, its background left to the terminal`, async ($, on) => {
+  test(`${surface}: the theme follows /config, its background left to the terminal`, async ($, on) => {
     envOf({})
     on('config.list', () => ({ value: [{ key: 'theme', value: 'light' }] as never }))
     on('config.set', (_$, e) => ({ value: e.value }))
-    const { ui } = await mountWith($, on, { theme: 'claude-code' })
+    const { ui } = await mountWith($, on, {})
     expect(await pageBg(ui)).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: ' Explorer' })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: ' Explorer' }))?.props.color).toBe('#000000')
@@ -3667,19 +3664,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ type: 'Text', text: ' Explorer' }))?.props.color).toBe('#ffffff')
   })
 
-  test(`${surface}: the Theme choice is in Settings; done saves it`, async ($, on) => {
+  test(`${surface}: Settings has no Theme choice`, async ($, on) => {
     envOf({})
-    const store = settingsStore(on)
-    fake(on)
-    on('ui.focus', () => ({}))
-    await $.session.start(start(surface))
-    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })
+    const { ui } = await mountWith($, on, {})
     await ui.press({ key: 'settings' })
-    expect((await ui.find({ key: 'settings:theme:claude' }))?.props.label).toContain('Default')
-    expect((await ui.find({ key: 'settings:theme:claude-code' }))?.props.label).toContain('Match Claude Code')
-    expect(await ui.find({ type: 'Text', text: '○ Match Terminal (Not supported)' })).toBeDefined()
-    await ui.press({ key: 'settings:theme:claude-code' })
-    await ui.press({ key: 'settings:done' })
-    expect((store.get('settings') as { theme?: string }).theme).toBe('claude-code')
+    expect(await ui.find({ key: 'settings:accent' })).toBeDefined()
+    expect(await ui.find({ key: 'settings:theme:claude-code' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Theme' })).toBeUndefined()
   })
 }

@@ -5,16 +5,10 @@ import {
   XTERM16,
   ccThemeName,
   parseTabbyScheme,
-  supportedTerminal,
   tabbyConfigPaths,
-  themeEnv,
   themeFromClaudeCode,
-  themeFromScheme,
-  themeNote,
 } from './term-theme'
 import type { TermScheme } from './term-theme'
-import { THEMES } from './theme'
-import { contrastRatio } from './ui'
 
 const ELEMENTARY = [
   '#242424', '#d71c15', '#5aa513', '#fdb40c', '#063b8c', '#e40038', '#2595e1', '#efefef',
@@ -56,19 +50,6 @@ test('parseTabbyScheme: the light scheme while colorSchemeMode is light', () => 
 
 const ELEMENTARY_SCHEME: TermScheme = { name: 'Elementary', foreground: '#efefef', background: '#181818', colors: ELEMENTARY }
 
-test('themeFromScheme: its background and text, readable accents from its colors', () => {
-  const t = themeFromScheme(ELEMENTARY_SCHEME)
-  expect(t.bg).toBe('#181818')
-  expect(t.canvas).toBe('#181818')
-  expect(t.text).toBe('#efefef')
-  for (const key of ['accent', 'danger', 'success', 'warning', 'info'] as const) {
-    expect({ key, ok: contrastRatio(t[key], t.bg) >= 3 }).toEqual({ key, ok: true })
-    expect(ELEMENTARY).toContain(t[key])
-  }
-  // bright blue, readable on this background
-  expect(t.accent).toBe('#0955ff')
-})
-
 test('themeFromClaudeCode: the palette of the /config theme, the background left to the terminal', () => {
   const dark = themeFromClaudeCode('dark', undefined)
   expect(dark.canvas).toBeUndefined()
@@ -102,26 +83,10 @@ test('tabbyConfigPaths: the directory Tabby names, its defaults, none outside Ta
   expect(tabbyConfigPaths('iTerm.app', undefined, '/home/u')).toEqual([])
 })
 
-test('supportedTerminal: Tabby when its config is found, else none', () => {
-  expect(supportedTerminal({ ...themeEnv, configPaths: ['/c.yaml'] })).toBe('Tabby')
-  expect(supportedTerminal({ ...themeEnv, configPaths: [] })).toBeUndefined()
-  expect(supportedTerminal({ ...themeEnv, configPaths: undefined })).toBeUndefined()
-})
-
-test('themeNote: what an outside theme follows, or why it draws as the default', () => {
-  const env = (patch: Partial<typeof themeEnv>) => ({ ...themeEnv, configPaths: [] as string[], scheme: undefined, ccTheme: undefined, ...patch })
-  expect(themeNote('claude', env({}))).toBeUndefined()
-  expect(themeNote('terminal', env({}))).toBe('this terminal is not supported: drawn as default')
-  expect(themeNote('terminal', env({ configPaths: ['/c.yaml'] }))).toContain('no Tabby color scheme')
-  expect(themeNote('terminal', env({ configPaths: ['/c.yaml'], scheme: ELEMENTARY_SCHEME }))).toBe('Tabby: Elementary')
-  expect(themeNote('claude-code', env({ ccTheme: 'light' }))).toBe('follows /theme: light')
-})
-
-test('settings: theme takes its three sources; resolveTheme draws each, else claude', () => {
-  expect(settingsOf({ theme: 'terminal' })).toEqual({ theme: 'terminal' })
-  expect(settingsOf({ theme: 'nord' })).toEqual({})
-  expect(resolveTheme({ theme: 'terminal' }, '')).toEqual(THEMES.claude)
-  expect(resolveTheme({ theme: 'terminal' }, '', { scheme: ELEMENTARY_SCHEME }).bg).toBe('#181818')
-  expect(resolveTheme({ theme: 'claude-code' }, '', { ccTheme: 'light' }).text).toBe('#000000')
-  expect(resolveTheme({}, '', { scheme: ELEMENTARY_SCHEME })).toEqual(THEMES.claude)
+test("resolveTheme: Claude Code's theme, painted on the terminal scheme when known", () => {
+  expect(resolveTheme({}, '')).toEqual(themeFromClaudeCode('dark', undefined))
+  expect(resolveTheme({}, '', { ccTheme: 'light' }).text).toBe('#000000')
+  expect(resolveTheme({}, '', { scheme: ELEMENTARY_SCHEME }).canvas).toBe('#181818')
+  // a theme choice saved by an older version is dropped
+  expect(settingsOf({ theme: 'terminal' })).toEqual({})
 })

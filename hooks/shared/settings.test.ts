@@ -2,7 +2,10 @@ import { expect, test } from 'claude-code/testing'
 
 import { ansi256Hex, sessionHex } from './color'
 import { DEFAULTS, keysError, mergeKeys, resolveTheme, settingsOf, withGitDefaults } from './settings'
-import { THEMES } from './theme'
+import { themeFromClaudeCode } from './term-theme'
+
+// The panels' theme in the tests: Claude Code's dark theme, no terminal scheme.
+const DARK = themeFromClaudeCode('dark', undefined)
 
 test('ansi256Hex covers system, cube and gray codes', () => {
   expect(ansi256Hex(9)).toBe('#ff0000')
@@ -16,9 +19,9 @@ test('ansi256Hex covers system, cube and gray codes', () => {
   expect(sessionHex('nope')).toBe(sessionHex(''))
 })
 
-test('resolveTheme: default is claude with its own accent', () => {
-  expect(resolveTheme(undefined, '')).toEqual(THEMES.claude)
-  expect(resolveTheme({}, '')).toEqual(THEMES.claude)
+test('resolveTheme: default is Claude Code dark with its own accent', () => {
+  expect(resolveTheme(undefined, '')).toEqual(DARK)
+  expect(resolveTheme({}, '')).toEqual(DARK)
 })
 
 test('resolveTheme: a session color overrides the accent unless turned off', () => {
@@ -26,13 +29,13 @@ test('resolveTheme: a session color overrides the accent unless turned off', () 
   expect(t.accent).toBe('#ff8700')
   expect(t.focus).toBe('#ff8700')
   expect(t.accentText).toBe('#000000')
-  expect(t.accentHover).not.toBe(THEMES.claude.accentHover)
-  expect(t.bg).toBe(THEMES.claude.bg)
-  expect(resolveTheme({ accentFromSession: false }, 'orange')).toEqual(THEMES.claude)
+  expect(t.accentHover).not.toBe(DARK.accentHover)
+  expect(t.bg).toBe(DARK.bg)
+  expect(resolveTheme({ accentFromSession: false }, 'orange')).toEqual(DARK)
 })
 
 test('resolveTheme: a theme saved by an older version is ignored', () => {
-  expect(resolveTheme({ theme: 'nord' } as never, '')).toEqual(THEMES.claude)
+  expect(resolveTheme({ theme: 'nord' } as never, '')).toEqual(DARK)
 })
 
 test('mergeKeys: preset from settings over userConfig', () => {

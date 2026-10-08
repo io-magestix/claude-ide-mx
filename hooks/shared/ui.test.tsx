@@ -1,12 +1,15 @@
 import { expect, test } from 'claude-code/testing'
 
-import { THEMES } from './theme'
+import { themeFromClaudeCode } from './term-theme'
 import { Alert as A_, Avatar as Av_, Badge as Ba_, Btn as B, Card as C_, Progress as P_, Tabs as T_, barString, contrast, contrastRatio, initials, onDefaultFg } from './ui'
+
+// The panels' theme in the tests: Claude Code's dark theme, no terminal scheme.
+const DARK = themeFromClaudeCode('dark', undefined)
 
 // The elements are plain constructors: calling one returns its frozen element.
 const mk = (type: string) => (props: Record<string, unknown>) => ({ type, props })
 const el: any = { Box: mk('Box'), Text: mk('Text'), Button: mk('Button') }
-const t = THEMES.claude
+const t = DARK
 const Alert: any = A_, Avatar: any = Av_, Badge: any = Ba_, Card: any = C_, Progress: any = P_, Tabs: any = T_
 const txt = (x: any): string => [x.props.children].flat(9).join('')
 // The library returns RenderElement; the mock elements are plain {type, props}.

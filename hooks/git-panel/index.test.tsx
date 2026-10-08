@@ -5,14 +5,17 @@ import type { On } from 'claude-code'
 import { sliceCols } from '../shared/hscroll'
 import { PALETTE_SIZE, layoutGraph, parseLog } from './git'
 import { lanePalette } from './git-theme'
-import { THEMES } from '../shared/theme'
+import { themeFromClaudeCode } from '../shared/term-theme'
 import { sessionHex } from '../shared/color'
 import { onDefaultFg } from '../shared/ui'
 import { BRANCHES, LOG, MERGE_NAME_STATUS, MERGE_PATCH, MULTI_PATCH, NAME_STATUS, STAT } from './fixtures'
 
+// The panels' theme in the tests: Claude Code's dark theme, no terminal scheme.
+const DARK = themeFromClaudeCode('dark', undefined)
+
 const CWD = '/repo'
-const LANES = lanePalette(THEMES.claude)
-const SEL = onDefaultFg(THEMES.claude.surfaceHover)
+const LANES = lanePalette(DARK)
+const SEL = onDefaultFg(DARK.surfaceHover)
 const PLUGIN = 'ide-panes'
 const VIEWPORT = { columns: 120, rows: 30 }
 const props = (bodyColumns: number) =>
@@ -175,13 +178,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await mount($)
 
       const first = layoutGraph(parseLog(LOG))[0]?.color ?? 0
-      expect((await hashRows(ui, 'dots'))?.[0]?.color).toBe(lanePalette(THEMES.claude)[first])
-      const sel = onDefaultFg(THEMES.claude.surfaceHover)
+      expect((await hashRows(ui, 'dots'))?.[0]?.color).toBe(lanePalette(DARK)[first])
+      const sel = onDefaultFg(DARK.surfaceHover)
       expect((await ui.find({ key: 'row:' + parseLog(LOG)[0]?.sha }))?.props.backgroundColor).toBe(sel)
       const frames = (await ui.findAll({ type: 'Box' })).filter(box => box.props.borderStyle === 'round')
       expect(frames.length).toBeGreaterThan(0)
       for (const box of frames.filter(b => b.props.paddingX === undefined)) {
-        expect(box.props.borderColor).toBe(THEMES.claude.border)
+        expect(box.props.borderColor).toBe(DARK.border)
       }
     })
 
@@ -1477,7 +1480,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ type: 'Text', text: /^Local$/ }))?.props.bold).toBe(true)
     expect((await ui.find({ type: 'Text', text: /^Remote$/ }))?.props.bold).toBe(true)
     const remote = await ui.find({ type: 'Text', text: '  origin/main' })
-    expect(remote?.props.color).toBe(THEMES.claude.muted)
+    expect(remote?.props.color).toBe(DARK.muted)
   })
 
   test(`${surface}: a local-only card has no Remote heading`, async ($, on) => {
@@ -1807,16 +1810,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     await ui.press({ key: 'tab:overview' })
     expect(calls.some(a => a[1] === 'log' && a[a.indexOf('-n') + 1] === '50')).toBe(true)
-    expect((await ui.find({ key: 'more' }))?.props.label).toBe('more (+50)')
+    expect((await ui.find({ key: 'more' }))?.props.label).toBe('More (+50)')
     await ui.press({ key: 'more' })
     expect(calls.some(a => a[1] === 'log' && a[a.indexOf('-n') + 1] === '100')).toBe(true)
 
     // a new page size starts over at one page of it
     await ui.press({ key: 'settings' })
     await ui.press({ key: 'settings:limit:100' })
-    expect((await ui.find({ key: 'more' }))?.props.label).toBe('more (+100)')
+    expect((await ui.find({ key: 'more' }))?.props.label).toBe('More (+100)')
     await ui.press({ key: 'settings:cancel' })
-    expect((await ui.find({ key: 'more' }))?.props.label).toBe('more (+50)')
+    expect((await ui.find({ key: 'more' }))?.props.label).toBe('More (+50)')
   })
 
   test(`${surface}: reset layout from git clears both stored layouts and the splits`, async ($, on) => {

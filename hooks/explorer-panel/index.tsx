@@ -64,7 +64,7 @@ import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { GIT_PREFIX, MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
 import { DEFAULTS, SETTINGS_KEY, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
-import { THEME_POLL_MS, parseTabbyScheme, resetThemeEnv, supportedTerminal, tabbyConfigPaths, themeEnv, themeNote } from '../shared/term-theme'
+import { THEME_POLL_MS, parseTabbyScheme, resetThemeEnv, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import type { Theme } from '../shared/theme'
 import { Btn, Tabs, onDefaultFg } from '../shared/ui'
 import {
@@ -241,16 +241,14 @@ const widestCached = (key: string, lines: readonly string[]): number => {
 const isMode = (value: unknown): value is Mode =>
   MODES.includes(value as Mode)
 
-// What an outside theme (Settings `theme` `terminal` or `claude-code`) draws
-// from: Tabby's config.yaml, looked at again at most every THEME_POLL_MS and
-// read again when it changed, and Claude Code's `/config` theme (read once,
-// then kept current by the `config.set` hook; `force` reads it again). For
-// `claude`, only which terminal it is (Settings names it). The cache is
-// shared with Git (term-theme.ts `themeEnv`).
-const explorerThemeEnv = async ($: EngineInterface, source: string, force = false): Promise<void> => {
+// What the theme draws from: Claude Code's `/config` theme (read once, then
+// kept current by the `config.set` hook; `force` reads it again) and the
+// terminal's scheme from Tabby's config.yaml, looked at again at most every
+// THEME_POLL_MS and read again when it changed. The cache is shared with Git
+// (term-theme.ts `themeEnv`).
+const explorerThemeEnv = async ($: EngineInterface, force = false): Promise<void> => {
   const env = themeEnv
   try {
-    // Which terminal, looked up whatever the theme (Settings names it).
     if (env.configPaths === undefined) {
       env.configPaths = tabbyConfigPaths(
         await $.env.get('TERM_PROGRAM'),
@@ -258,7 +256,6 @@ const explorerThemeEnv = async ($: EngineInterface, source: string, force = fals
         await $.env.get('HOME'),
       )
     }
-    if (source === 'claude') return
     if (env.configPaths.length > 0 && (force || Date.now() - env.checkedAt >= THEME_POLL_MS)) {
       env.checkedAt = Date.now()
       for (const path of env.configPaths) {
@@ -271,17 +268,17 @@ const explorerThemeEnv = async ($: EngineInterface, source: string, force = fals
         break
       }
     }
-    if (source === 'claude-code' && (force || env.ccTheme === undefined)) {
+    if (force || env.ccTheme === undefined) {
       const row = (await $.config.list()).find(r => r.key === 'theme')
       env.ccTheme = typeof row?.value === 'string' ? row.value : 'dark'
     }
   } catch {
-    // not readable now: the theme draws from what is known (else as `claude`)
+    // not readable now: the theme draws from what is known (else as `dark`)
   }
 }
 
-// While an outside theme is in use and a panel is up, its sources are looked
-// at every THEME_POLL_MS: a Tabby scheme or a `/theme` changed redraws both.
+// While a panel is up, the theme's sources are looked at every
+// THEME_POLL_MS: a Tabby scheme or a `/theme` changed redraws both.
 let themeWatch: { cancel: () => void } | undefined
 const watchTheme = ($: EngineInterface): void => {
   if (themeWatch !== undefined) return
@@ -289,11 +286,9 @@ const watchTheme = ($: EngineInterface): void => {
     themeWatch = $.clock.after(THEME_POLL_MS, async () => {
       themeWatch = undefined
       try {
-        const source = (await read($, settings)).theme ?? DEFAULTS.theme
-        if (source === 'claude') return
         if (!(await $.ui.panes()).some(pane => pane.id === PANE || pane.id === SPLIT_PANE)) return
         const before = [themeEnv.mtime, themeEnv.ccTheme].join('\0')
-        await explorerThemeEnv($, source, true)
+        await explorerThemeEnv($, true)
         if ([themeEnv.mtime, themeEnv.ccTheme].join('\0') !== before) $.ui.invalidate('ui.render')
         watchTheme($)
       } catch {
@@ -305,13 +300,13 @@ const watchTheme = ($: EngineInterface): void => {
   }
 }
 
-// The Settings theme, its accent taken from the `/color` session color while
+// Claude Code's theme, its accent taken from the `/color` session color while
 // one is set (and `accentFromSession` is on, the default); that accent frames
 // the sections too (`accentBorder`), as git's.
 const themeNow = async ($: EngineInterface): Promise<{ t: Theme; accentBorder: boolean }> => {
   const now = await read($, settings)
   const color = await read($, sessionColor)
-  await explorerThemeEnv($, now.theme ?? DEFAULTS.theme)
+  await explorerThemeEnv($)
 
   return { t: resolveTheme(now, color, themeEnv), accentBorder: color !== '' && (now.accentFromSession ?? true) }
 }
@@ -1956,10 +1951,10 @@ const confirmDelete = async ($: EngineInterface): Promise<void> => {
 
 // The Edit border's line Buttons: label and the editor action they send.
 const EDIT_COMMANDS: readonly (readonly [string, Action])[] = [
-  ['↑line', 'moveLinesUp'],
-  ['↓line', 'moveLinesDown'],
-  ['dup', 'duplicateLines'],
-  ['del', 'deleteLines'],
+  ['↑Line', 'moveLinesUp'],
+  ['↓Line', 'moveLinesDown'],
+  ['Dup', 'duplicateLines'],
+  ['Del', 'deleteLines'],
 ]
 
 const discard = async ($: EngineInterface): Promise<void> => {
@@ -2200,7 +2195,7 @@ const seedSession = async ($: EngineInterface, carried?: Stash): Promise<void> =
 
 export const register = (on: On, options?: PluginOptions): void => {
   pluginOptions = options
-  // The outside themes' sources are read again after a reload.
+  // The theme's sources are read again after a reload.
   resetThemeEnv()
   const merged = mergeKeys(options, undefined)
   keymap = merged.keymap
@@ -2260,7 +2255,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     return next(e)
   })
 
-  // Claude Code's `/config` theme changed: the `claude-code` theme follows it.
+  // Claude Code's `/config` theme changed: the panels follow it.
   on('config.set', { key: 'theme' }, async ($, e, next) => {
     const done = await next(e)
     if ('value' in done && typeof done.value === 'string' && done.value !== themeEnv.ccTheme) {
@@ -2556,10 +2551,10 @@ export const register = (on: On, options?: PluginOptions): void => {
       view.splitRoom = Math.max(0, fullRows - 1)
     }
     const below = isSplit ? await next(e) : undefined
-    // The Settings theme (its accent from `/color` while one is set).
+    // Claude Code's theme (its accent from `/color` while one is set).
     const { t, accentBorder } = await themeNow($)
-    // An outside theme follows its sources while the panel is up.
-    if (((await read($, settings)).theme ?? DEFAULTS.theme) !== 'claude') watchTheme($)
+    // The theme follows its sources while the panel is up.
+    watchTheme($)
     // The Settings values and sheet; the editor keymap follows the values
     // whichever panel's sheet changed them.
     const settingsNow = await read($, settings)
@@ -2624,10 +2619,10 @@ export const register = (on: On, options?: PluginOptions): void => {
             : namingIn !== undefined
               ? 'naming'
               : undefined
-    // Header lines (the title row with the panel tabs, its right end kept for
-    // the Settings ⚙; actions; the interactive line while it asks), then the
-    // bordered sections (2 rows of frame each).
-    const headerRows = ask === undefined ? 2 : 3
+    // Header lines (the title row with the panel tabs and the actions, its
+    // right end kept for the Settings ⚙; the interactive line while it asks),
+    // then the bordered sections (2 rows of frame each).
+    const headerRows = ask === undefined ? 1 : 2
     const sectionRows = Math.max(5, bodyRows - headerRows)
     const footer = await footerOf($, root)
     // Outside a repo, look for one appearing (a definite answer only, not an
@@ -3046,8 +3041,6 @@ export const register = (on: On, options?: PluginOptions): void => {
             keymap: settingsNow.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains'),
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
-            themeNote: themeNote(settingsNow.theme, themeEnv),
-            terminalName: supportedTerminal(themeEnv),
             onChange: patch => void changeSettings($, patch),
             onKeys: text => void settingsKeys($, text),
             onResetLayout: () => void resetLayout($),
@@ -3058,21 +3051,25 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     const own = (
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
-        {/* The title and the panel tabs, 4 cells apart, cut at the right end
-            on a narrow pane (kept for the Settings ⚙). The active tab does
-            nothing (a mode switch would close a clean editor and reset the
-            scroll). */}
+        {/* The title row: the title, the panel tabs and the actions, 2 cells
+            apart with a divider after the title and after the tabs, cut at the
+            right end on a narrow pane (kept for the Settings ⚙). The active
+            tab does nothing (a mode switch would close a clean editor and
+            reset the scroll). */}
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
-          <Box key="header:tabs" flexDirection="row" gap={4} flexShrink={1} overflow="hidden">
+          <Box key="header:tabs" flexDirection="row" gap={2} flexShrink={1} overflow="hidden">
             <Box flexShrink={0}>
               <Text bold color={t.text}>
                 {' Explorer'}
               </Text>
             </Box>
             <Box flexShrink={0}>
+              <Text color={t.border}>|</Text>
+            </Box>
+            <Box flexShrink={0}>
               {Tabs(elements, t, {
                 style: 'pill',
-                gap: 4,
+                gap: 2,
                 surface,
                 tabs: [
                   { id: 'files', label: 'Files' },
@@ -3081,6 +3078,67 @@ export const register = (on: On, options?: PluginOptions): void => {
                 selected: state.mode,
                 onSelect: asleep((id: string) => (id === state.mode || !isMode(id) ? undefined : void setMode($, id))),
               })}
+            </Box>
+            <Box flexShrink={0}>
+              <Text color={t.border}>|</Text>
+            </Box>
+            <Box key="header:actions" flexDirection="row" gap={2} flexShrink={0}>
+              {btn(
+                'refresh',
+                'Refresh',
+                'ghost',
+                () => {
+                  listings.clear()
+                  dropPictures()
+                  // a converter installed since is found
+                  imageTool = undefined
+                  footers.clear()
+                  ignored.clear()
+                  unityRoots.clear()
+                  deleteFacts.clear()
+                  indexes.clear()
+                  toplevels.clear()
+                  if (state.marked !== undefined) void update($, explorer, s => ({ ...s, marked: undefined }))
+                  $.ui.invalidate('ui.render')
+                },
+              )}
+              {canEdit &&
+                edit === undefined &&
+                !multi &&
+                (preview?.type === 'code' || preview?.type === 'markdown') &&
+                preview.generated !== true &&
+                btn('edit', 'Edit', 'secondary', () => void startEdit($, preview.path))}
+              {canNew &&
+                !multi &&
+                btn(
+                  'new',
+                  'New',
+                  'outline',
+                  () =>
+                    void openNaming(
+                      $,
+                      current !== undefined
+                        ? current.kind === 'dir'
+                          ? current.path
+                          : parentOf(current.path)
+                        : state.selected !== undefined
+                          ? parentOf(state.selected)
+                          : root,
+                    ),
+                )}
+              {markAt !== undefined && btn('mark', 'Mark', 'ghost', () => void markToggle($, markAt))}
+              {multi
+                ? btn('copy', 'Copy Paths', 'ghost', () => void copyMarked($, surface))
+                : current !== undefined &&
+                  btn('copy', 'Copy Path', 'ghost', () => void copyPath($, state.cursor ?? current.path, surface))}
+              {(multi || current !== undefined) &&
+                !isAsking &&
+                btn(
+                  'delete',
+                  'Delete',
+                  'danger',
+                  () => void (multi ? askDeleteMany($, marksOf(state)) : current !== undefined && askDelete($, current.path)),
+                )}
             </Box>
             {isNotUnity && (
               <Box flexShrink={0}>
@@ -3092,64 +3150,6 @@ export const register = (on: On, options?: PluginOptions): void => {
             {SettingsButton(elements, t, { surface, isOpen: sheet.open === host, onPress: () => void toggleSettings($) })}
           </Box>
         </Box>
-        <Box key="header:actions" flexDirection="row" gap={1}>
-          {btn(
-            'refresh',
-            'refresh',
-            'ghost',
-            () => {
-              listings.clear()
-              dropPictures()
-              // a converter installed since is found
-              imageTool = undefined
-              footers.clear()
-              ignored.clear()
-              unityRoots.clear()
-              deleteFacts.clear()
-              indexes.clear()
-              toplevels.clear()
-              if (state.marked !== undefined) void update($, explorer, s => ({ ...s, marked: undefined }))
-              $.ui.invalidate('ui.render')
-            },
-          )}
-          {canEdit &&
-            edit === undefined &&
-            !multi &&
-            (preview?.type === 'code' || preview?.type === 'markdown') &&
-            preview.generated !== true &&
-            btn('edit', 'edit', 'secondary', () => void startEdit($, preview.path))}
-          {canNew &&
-            !multi &&
-            btn(
-              'new',
-              'new',
-              'outline',
-              () =>
-                void openNaming(
-                  $,
-                  current !== undefined
-                    ? current.kind === 'dir'
-                      ? current.path
-                      : parentOf(current.path)
-                    : state.selected !== undefined
-                      ? parentOf(state.selected)
-                      : root,
-                ),
-            )}
-          {markAt !== undefined && btn('mark', 'mark', 'ghost', () => void markToggle($, markAt))}
-          {multi
-            ? btn('copy', 'copy paths', 'ghost', () => void copyMarked($, surface))
-            : current !== undefined &&
-              btn('copy', 'copy path', 'ghost', () => void copyPath($, state.cursor ?? current.path, surface))}
-          {(multi || current !== undefined) &&
-            !isAsking &&
-            btn(
-              'delete',
-              'delete',
-              'danger',
-              () => void (multi ? askDeleteMany($, marksOf(state)) : current !== undefined && askDelete($, current.path)),
-            )}
-        </Box>
         {/* The interactive line, only while something asks: the question or
             the name field on the left, its Buttons in the right corner. */}
         {ask === 'conflict' && edit?.conflict !== undefined
@@ -3159,26 +3159,26 @@ export const register = (on: On, options?: PluginOptions): void => {
               (edit.conflict === 'disk' ? 'Changed on disk since loaded: ' : 'Changed on disk by Claude: ') +
                 edit.path.slice(edit.path.lastIndexOf('/') + 1),
               [
-                btn('ask:overwrite', 'overwrite', 'danger', () => sendCommand($, 'overwrite')),
-                btn('ask:reload', 'reload', 'primary', () => void reloadEdit($)),
-                btn('ask:cancel', 'cancel', 'ghost', () => void patchEdit($, edit.version, { conflict: undefined })),
+                btn('ask:overwrite', 'Overwrite', 'danger', () => sendCommand($, 'overwrite')),
+                btn('ask:reload', 'Reload', 'primary', () => void reloadEdit($)),
+                btn('ask:cancel', 'Cancel', 'ghost', () => void patchEdit($, edit.version, { conflict: undefined })),
               ],
             )
           : ask === 'unsaved' && edit !== undefined
             ? askLine(t.warning, '⚠', 'Unsaved changes in ' + edit.path.slice(edit.path.lastIndexOf('/') + 1), [
-                btn('ask:save', 'save', 'primary', () => sendCommand($, 'save')),
-                btn('ask:discard', 'discard', 'danger', () => void discard($)),
+                btn('ask:save', 'Save', 'primary', () => sendCommand($, 'save')),
+                btn('ask:discard', 'Discard', 'danger', () => void discard($)),
                 btn(
                   'ask:cancel',
-                  'cancel',
+                  'Cancel',
                   'ghost',
                   () => void patchEdit($, edit.version, { confirm: undefined, pending: undefined }),
                 ),
               ])
             : ask === 'delete'
               ? askLine(t.danger, '✕', deleteText, [
-                  btn('delete:confirm', 'delete', 'danger', () => void confirmDelete($)),
-                  btn('delete:cancel', 'cancel', 'ghost', () => void cancelDelete($)),
+                  btn('delete:confirm', 'Delete', 'danger', () => void confirmDelete($)),
+                  btn('delete:cancel', 'Cancel', 'ghost', () => void cancelDelete($)),
                 ])
               : ask === 'naming' && namingIn !== undefined && Input !== undefined ? (
                   <Box key="header:ask" flexDirection="row" justifyContent="space-between" gap={1} backgroundColor={t.surface}>
@@ -3187,13 +3187,13 @@ export const register = (on: On, options?: PluginOptions): void => {
                       <Input
                         key="new-file"
                         label={'new file in ' + relativeDir(namingIn, root)}
-                        submitLabel="create"
+                        submitLabel="Create"
                         autoFocus
                         onSubmit={value => createNew($, namingIn, value)}
                       />
                     </Box>
                     <Box flexDirection="row" gap={1} flexShrink={0}>
-                      {btn('new:cancel', 'cancel', 'ghost', () => void closeNaming($))}
+                      {btn('new:cancel', 'Cancel', 'ghost', () => void closeNaming($))}
                     </Box>
                   </Box>
                 ) : undefined}
@@ -3311,8 +3311,8 @@ export const register = (on: On, options?: PluginOptions): void => {
             {titled('title:edit', 'Edit', isEditDirty(edit) ? '●' : undefined)}
             {/* Line actions for terminals that do not report their chords. */}
             <Box position="absolute" top={0} right={1} flexDirection="row" gap={1}>
-              {edgeButton('edit:save', 'save', true, () => sendCommand($, 'save'))}
-              {edgeButton('edit:close', 'close', false, () => void closeEdit($))}
+              {edgeButton('edit:save', 'Save', true, () => sendCommand($, 'save'))}
+              {edgeButton('edit:close', 'Close', false, () => void closeEdit($))}
               {EDIT_COMMANDS.map(([label, command]) => edgeButton('edit:' + command, label, false, () => sendCommand($, command)))}
             </Box>
             </Box>
@@ -3445,7 +3445,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             <Box position="absolute" top={0} right={1} flexDirection="row">
               {edgeButton(
                 'preview:view',
-                isRaw ? 'rendered' : 'source',
+                isRaw ? 'Rendered' : 'Source',
                 false,
                 asleep(() =>
                   void update($, explorer, s => ({ ...s, previewRaw: s.previewRaw === true ? undefined : true, previewOffset: 0, previewLeft: 0 })),

@@ -42,8 +42,6 @@ export type SheetProps = {
   keymap: 'jetbrains' | 'vscode' // the preset in effect (settings, else userConfig)
   keys: string // the overrides field's text
   keysError?: string
-  themeNote?: string // under the Theme choice: what an outside theme follows, or why it is not drawn
-  terminalName?: string // the supported terminal the session runs in; undefined greys out Match Terminal
   onChange: (patch: Partial<SettingsState>) => void
   onKeys: (text: string) => void
   onResetLayout: () => void
@@ -63,10 +61,10 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
   const s = p.settings
   const surface = p.surface
   const cardW = sheetWidth(p.cols)
-  // The card's rows as drawn below (frame 2, title, 5 headings, 8 rows, the
+  // The card's rows as drawn below (frame 2, title, 5 headings, 7 rows, the
   // keys field 5, separator, footer): centers it; a wrapped row adds one,
   // which the shadow follows by itself.
-  const cardH = 2 + 1 + 5 + 8 + 5 + 1 + 1
+  const cardH = 2 + 1 + 5 + 7 + 5 + 1 + 1
   const area = Math.max(1, p.rows - 1)
   const top = centerOffset(area, cardH + 1)
   const left = centerOffset(p.cols, cardW + 1)
@@ -86,8 +84,8 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
       </Box>
     </Box>
   )
-  const radio = (key: string, value: string, options: readonly string[], onChange: (v: string) => void) =>
-    RadioGroup(el, t, { key, row: true, value, surface, options: options.map(o => ({ value: o, label: o })), onChange })
+  const radio = (key: string, value: string, options: readonly (readonly [string, string])[], onChange: (v: string) => void) =>
+    RadioGroup(el, t, { key, row: true, value, surface, options: options.map(([v, label]) => ({ value: v, label })), onChange })
 
   const limit = s.gitLimit ?? DEFAULTS.gitLimit
   // The overrides field: a native Input where the surface has one (not mobile).
@@ -99,7 +97,7 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
     helper: p.keysError === undefined ? 'e.g. {"duplicateLines":"ctrl+shift+d"}' : undefined,
     children:
       Input !== undefined ? (
-        <Input key="settings:keys" placeholder="{}" value={p.keys} submitLabel="apply" onInput={p.onKeys} onSubmit={p.onKeys} />
+        <Input key="settings:keys" placeholder="{}" value={p.keys} submitLabel="Apply" onInput={p.onKeys} onSubmit={p.onKeys} />
       ) : (
         <Text color={t.muted} wrap="truncate-end">
           {p.keys === '' ? '(none; edit on the terminal or desktop)' : p.keys}
@@ -127,54 +125,31 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
             Settings
           </Text>
           {heading('settings:h:appearance', 'Appearance')}
-          {line('settings:l:theme', 'Theme', [
-            RadioGroup(el, t, {
-              key: 'settings:theme',
-              row: true,
-              value: s.theme ?? DEFAULTS.theme,
-              surface,
-              options: [
-                { value: 'claude', label: 'Default' },
-                {
-                  value: 'terminal',
-                  label: `Match Terminal (${p.terminalName ?? 'Not supported'})`,
-                  disabled: p.terminalName === undefined,
-                },
-                { value: 'claude-code', label: 'Match Claude Code' },
-              ],
-              onChange: v => p.onChange({ theme: v as 'claude' | 'terminal' | 'claude-code' }),
-            }),
-            p.themeNote !== undefined && (
-              <Text key="settings:theme:note" color={t.muted}>
-                {p.themeNote}
-              </Text>
-            ),
-          ])}
           {line(
             'settings:l:accent',
             'Accent',
             Switch(el, t, {
               key: 'settings:accent',
-              label: 'from /color',
+              label: 'From /color',
               on: s.accentFromSession ?? DEFAULTS.accentFromSession,
               surface,
               onChange: on => p.onChange({ accentFromSession: on }),
             }),
           )}
           {heading('settings:h:editor', 'Editor')}
-          {line('settings:l:keymap', 'Keymap', radio('settings:keymap', p.keymap, ['jetbrains', 'vscode'], v => p.onChange({ keymap: v as 'jetbrains' | 'vscode' })))}
+          {line('settings:l:keymap', 'Keymap', radio('settings:keymap', p.keymap, [['jetbrains', 'JetBrains'], ['vscode', 'VS Code']], v => p.onChange({ keymap: v as 'jetbrains' | 'vscode' })))}
           {keysField}
           {heading('settings:h:explorer', 'Explorer')}
           {line(
             'settings:l:mode',
             'Default mode',
-            radio('settings:mode', s.explorerMode ?? DEFAULTS.explorerMode, ['files', 'unity'], v => p.onChange({ explorerMode: v as 'files' | 'unity' })),
+            radio('settings:mode', s.explorerMode ?? DEFAULTS.explorerMode, [['files', 'Files'], ['unity', 'Unity']], v => p.onChange({ explorerMode: v as 'files' | 'unity' })),
           )}
           {heading('settings:h:git', 'Git')}
           {line(
             'settings:l:tab',
             'Default tab',
-            radio('settings:tab', s.gitTab ?? DEFAULTS.gitTab, ['overview', 'graph', 'changelog'], v =>
+            radio('settings:tab', s.gitTab ?? DEFAULTS.gitTab, [['overview', 'Overview'], ['graph', 'Graph'], ['changelog', 'Change Log']], v =>
               p.onChange({ gitTab: v as 'overview' | 'graph' | 'changelog' }),
             ),
           )}
@@ -191,14 +166,14 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
             'Session',
             Switch(el, t, {
               key: 'settings:autoOpen',
-              label: 'open on start, close on exit',
+              label: 'Open on start, close on exit',
               on: s.autoOpen ?? DEFAULTS.autoOpen,
               surface,
               onChange: on => p.onChange({ autoOpen: on }),
             }),
           )}
           {line('settings:l:reset', 'Sections', [
-            Btn(el, t, { key: 'settings:reset', label: 'reset layout', variant: 'danger', size: 'sm', surface, onPress: p.onResetLayout }),
+            Btn(el, t, { key: 'settings:reset', label: 'Reset Layout', variant: 'danger', size: 'sm', surface, onPress: p.onResetLayout }),
             <Text key="settings:reset:hint" color={t.muted}>
               sizes back to defaults, now
             </Text>,
@@ -207,8 +182,8 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
             {'─'.repeat(Math.max(1, cardW - 6))}
           </Text>
           <Box flexDirection="row" justifyContent="flex-end" gap={1}>
-            {ModalBtn(el, t, { key: 'settings:cancel', label: 'cancel', variant: 'ghost', dismiss: true, surface, onPress: p.onCancel })}
-            {ModalBtn(el, t, { key: 'settings:done', label: 'done', variant: 'primary', surface, onPress: p.onDone })}
+            {ModalBtn(el, t, { key: 'settings:cancel', label: 'Cancel', variant: 'ghost', dismiss: true, surface, onPress: p.onCancel })}
+            {ModalBtn(el, t, { key: 'settings:done', label: 'Done', variant: 'primary', surface, onPress: p.onDone })}
           </Box>
         </Box>
       </Box>

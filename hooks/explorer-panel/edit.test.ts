@@ -1,8 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 
 import { DRAFT_DIR, accept, draftFile, editorColors, hashPath, mixHex, parseChunk, parseHView } from './edit'
-import { THEMES } from '../shared/theme'
+import { themeFromClaudeCode } from '../shared/term-theme'
 import type { ChunkMsg } from './edit'
+
+// The panels' theme in the tests: Claude Code's dark theme, no terminal scheme.
+const DARK = themeFromClaudeCode('dark', undefined)
 
 const msg = (over: Partial<ChunkMsg> = {}): ChunkMsg => ({
   kind: 'save',
@@ -89,7 +92,7 @@ test('mixHex: the ends, halfway, and a non-hex color left alone', () => {
 })
 
 test('editorColors: theme text and muted gutter, inverted caret, a sunk accent selection', () => {
-  const t = THEMES.claude
+  const t = DARK
   const c = editorColors(t)
   expect(c.text).toBe(t.text)
   expect(c.gutter).toBe(t.muted)

@@ -1,9 +1,6 @@
-export type ThemeName = 'claude'
-
 // The Settings sheet's values; an absent field is its default
 // (`hooks/shared/settings.ts` DEFAULTS). Saved whole to `$.store` `settings` (global).
 export type SettingsState = {
-  theme?: 'claude' | 'terminal' | 'claude-code' // `claude`: the plugin's palette; `terminal`: the terminal's color scheme (Tabby); `claude-code`: Claude Code's /config theme. Absent is `claude`
   accentFromSession?: boolean // the `/color` session color overrides the theme accent; absent is true
   keymap?: 'jetbrains' | 'vscode' // editor preset; absent falls back to userConfig `editorKeymap`
   keys?: string // JSON of action to chord or chords, merged over userConfig `editorKeys`

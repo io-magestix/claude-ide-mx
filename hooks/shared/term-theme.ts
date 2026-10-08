@@ -1,11 +1,10 @@
-// The themes that follow something outside the plugin (Settings `theme`):
-// `terminal`, the terminal's own color scheme (Tabby's, read from its
-// config.yaml), and `claude-code`, Claude Code's `/config` theme. Pure: the
-// panels read the files and the config and hand the text and names here.
+// The panels' theme follows Claude Code's `/config` theme, painted on the
+// terminal's own color scheme where it is known (Tabby's, read from its
+// config.yaml). Pure: the panels read the files and the config and hand the
+// text and names here.
 import { mixHex } from '../explorer-panel/edit'
-import { THEMES } from './theme'
 import type { Theme } from './theme'
-import { contrast, contrastRatio, luminance } from './ui'
+import { contrast, luminance } from './ui'
 
 // A terminal color scheme: its default colors and the 16 ANSI ones.
 export type TermScheme = {
@@ -76,42 +75,6 @@ export const parseTabbyScheme = (yaml: string): TermScheme | undefined => {
   }
 
   return (isLight ? schemeAt(lines, 'lightColorScheme') : undefined) ?? schemeAt(lines, 'colorScheme')
-}
-
-// The first of `candidates` (ANSI indexes) readable on `bg`, else the most readable.
-const readable = (scheme: TermScheme, candidates: readonly number[]): string => {
-  const colors = candidates.map(i => scheme.colors[i] ?? scheme.foreground)
-  const good = colors.find(c => contrastRatio(c, scheme.background) >= 3)
-
-  return good ?? colors.reduce((a, b) => (contrastRatio(b, scheme.background) > contrastRatio(a, scheme.background) ? b : a))
-}
-
-// The panels' tokens from a terminal scheme: its background and foreground,
-// neutrals mixed between them, and accents from its ANSI colors.
-export const themeFromScheme = (scheme: TermScheme): Theme => {
-  const bg = scheme.background
-  const fg = scheme.foreground
-  const accent = readable(scheme, [12, 4, 14, 6])
-
-  return {
-    name: 'terminal',
-    bg,
-    canvas: bg,
-    surface: mixHex(bg, fg, 0.07),
-    surfaceHover: mixHex(bg, fg, 0.14),
-    border: mixHex(bg, fg, 0.28),
-    borderStrong: mixHex(bg, fg, 0.45),
-    text: fg,
-    muted: mixHex(fg, bg, 0.4),
-    accent,
-    accentText: contrast(accent),
-    accentHover: mixHex(accent, fg, 0.2),
-    danger: readable(scheme, [9, 1]),
-    success: readable(scheme, [10, 2]),
-    warning: readable(scheme, [11, 3]),
-    info: readable(scheme, [14, 6]),
-    focus: accent,
-  }
 }
 
 // xterm's 16 colors, for Claude Code's ANSI themes where the terminal's are not known.
@@ -203,7 +166,7 @@ export const themeFromClaudeCode = (name: string | undefined, scheme: TermScheme
 
   return {
     name: 'claude-code',
-    bg: scheme?.background ?? (isLight ? '#ffffff' : THEMES.claude.bg),
+    bg: scheme?.background ?? (isLight ? '#ffffff' : '#1f1f1f'),
     canvas: scheme?.background,
     surface,
     surfaceHover: mixHex(surface, text, 0.12),
@@ -222,7 +185,7 @@ export const themeFromClaudeCode = (name: string | undefined, scheme: TermScheme
   }
 }
 
-// What the outside themes were last read from, shared by the two panels
+// What the theme was last read from, shared by the two panels
 // (module state: a reload reads again). `configPaths`: the Tabby config.yaml
 // candidates (empty outside Tabby; undefined until looked up); `scheme`, its
 // scheme as of `mtime`; `ccTheme`, Claude Code's `/config` theme.
@@ -234,8 +197,8 @@ export const themeEnv = {
   ccTheme: undefined as string | undefined,
 }
 
-// How often the Tabby config is looked at again (and, for `claude-code`, the
-// `/config` theme) while an outside theme is in use.
+// How often the Tabby config and the `/config` theme are looked at again
+// while a panel is up.
 export const THEME_POLL_MS = 2000
 
 // Where Tabby keeps its config.yaml: the directory Tabby names in its
@@ -250,25 +213,6 @@ export const tabbyConfigPaths = (
   if (program !== 'Tabby' || home === undefined) return []
 
   return [home + '/Library/Application Support/tabby/config.yaml', home + '/.config/tabby/config.yaml']
-}
-
-// The supported terminal the session runs in, by name; undefined when it is
-// not one (only Tabby for now) or not looked up yet.
-export const supportedTerminal = (env: typeof themeEnv): string | undefined =>
-  env.configPaths !== undefined && env.configPaths.length > 0 ? 'Tabby' : undefined
-
-// The Settings sheet's line under the Theme choice: what the outside theme
-// follows now, or why it is drawn as the default.
-export const themeNote = (source: string | undefined, env: typeof themeEnv): string | undefined => {
-  if (source === 'terminal') {
-    if (env.configPaths !== undefined && env.configPaths.length === 0) return 'this terminal is not supported: drawn as default'
-    if (env.scheme === undefined) return 'no Tabby color scheme found: drawn as default'
-
-    return 'Tabby: ' + (env.scheme.name ?? 'custom scheme')
-  }
-  if (source === 'claude-code') return 'follows /theme: ' + ccThemeName(env.ccTheme, env.scheme)
-
-  return undefined
 }
 
 // Forgets what was read: each load of the plugin reads the sources again.

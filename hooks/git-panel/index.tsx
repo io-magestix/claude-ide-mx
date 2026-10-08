@@ -7,7 +7,7 @@ import { sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
 import { H_THUMB, H_TRACK, scrollbar } from '../shared/scrollbar'
 import { DEFAULTS, SETTINGS_KEY, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
-import { THEME_POLL_MS, parseTabbyScheme, supportedTerminal, tabbyConfigPaths, themeEnv, themeNote } from '../shared/term-theme'
+import { THEME_POLL_MS, parseTabbyScheme, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { GIT_PREFIX, SPLIT_PANE, gitKeyOf, prefixKeys, seat } from '../shared/layout'
 import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
@@ -179,11 +179,10 @@ const resetLayout = async ($: EngineInterface): Promise<void> => {
 }
 
 // As the explorer's explorerThemeEnv (the validator follows `$` within one
-// file): what an outside theme draws from, into the shared `themeEnv`.
-const gitThemeEnv = async ($: EngineInterface, source: string): Promise<void> => {
+// file): what the theme draws from, into the shared `themeEnv`.
+const gitThemeEnv = async ($: EngineInterface): Promise<void> => {
   const env = themeEnv
   try {
-    // Which terminal, looked up whatever the theme (Settings names it).
     if (env.configPaths === undefined) {
       env.configPaths = tabbyConfigPaths(
         await $.env.get('TERM_PROGRAM'),
@@ -191,7 +190,6 @@ const gitThemeEnv = async ($: EngineInterface, source: string): Promise<void> =>
         await $.env.get('HOME'),
       )
     }
-    if (source === 'claude') return
     if (env.configPaths.length > 0 && Date.now() - env.checkedAt >= THEME_POLL_MS) {
       env.checkedAt = Date.now()
       for (const path of env.configPaths) {
@@ -204,12 +202,12 @@ const gitThemeEnv = async ($: EngineInterface, source: string): Promise<void> =>
         break
       }
     }
-    if (source === 'claude-code' && env.ccTheme === undefined) {
+    if (env.ccTheme === undefined) {
       const row = (await $.config.list()).find(r => r.key === 'theme')
       env.ccTheme = typeof row?.value === 'string' ? row.value : 'dark'
     }
   } catch {
-    // not readable now: the theme draws from what is known (else as `claude`)
+    // not readable now: the theme draws from what is known (else as `dark`)
   }
 }
 
@@ -927,7 +925,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         if (sheet.open !== host) void act(...args)
       }
     const color = await read($, sessionColor)
-    await gitThemeEnv($, settingsNow.theme ?? DEFAULTS.theme)
+    await gitThemeEnv($)
     const t = resolveTheme(settingsNow, color, themeEnv)
     // That `/color` accent frames the sections too, as it did before themes.
     const accentBorder = color !== '' && (settingsNow.accentFromSession ?? true)
@@ -951,8 +949,6 @@ export const register = (on: On, options?: PluginOptions): void => {
             keymap: settingsNow.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains'),
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
-            themeNote: themeNote(settingsNow.theme, themeEnv),
-            terminalName: supportedTerminal(themeEnv),
             onChange: patch => void changeSettings($, patch),
             onKeys: text => void settingsKeys($, text),
             onResetLayout: () => void resetLayout($),
@@ -1338,7 +1334,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         <Box flexDirection="column" flexGrow={1}>
         <Box flexDirection="row" backgroundColor={state.ref === 'all' ? sel : undefined}>
           <Text color={t.accent}>{state.ref === 'all' ? '▌' : ' '}</Text>
-          <Button key="all" plain label="all" onPress={asleep(() => select('all'))} />
+          <Button key="all" plain label="All" onPress={asleep(() => select('all'))} />
         </Box>
         {branchRows.map((row: BranchRow) => {
           // Rails per depth as in the explorer; a folder opens or closes.
@@ -1619,7 +1615,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             <Button
               key="more"
               plain
-              label={`more (+${page})`}
+              label={`More (+${page})`}
               onPress={() => update($, git, s => ({ ...s, limit: state.limit + page }))}
             />
           )}
@@ -1847,12 +1843,16 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     return own(
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
-        {/* The title, the panel tabs and the actions, 2 cells apart, cut at the
-            right end on a narrow pane (kept for the Settings ⚙). */}
+        {/* The title, the panel tabs and the actions, 2 cells apart with a
+            divider after the title and after the tabs, cut at the right end on
+            a narrow pane (kept for the Settings ⚙). */}
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
           <Box key="header:tabs" flexDirection="row" gap={2} flexShrink={1} overflow="hidden">
             <Box flexShrink={0}>
               <Text bold color={t.text}>{' Git'}</Text>
+            </Box>
+            <Box flexShrink={0}>
+              <Text color={t.border}>|</Text>
             </Box>
             <Box flexShrink={0}>
               {Tabs(elements, t, {
@@ -1864,15 +1864,18 @@ export const register = (on: On, options?: PluginOptions): void => {
                 onSelect: asleep((id: string) => showTab(id as Tab)),
               })}
             </Box>
+            <Box flexShrink={0}>
+              <Text color={t.border}>|</Text>
+            </Box>
             {isDiff && (
               <Box flexShrink={0}>
-                {Btn(elements, t, { key: 'back', label: 'back', variant: 'secondary', size: 'sm', surface, onPress: asleep(closeDiff) })}
+                {Btn(elements, t, { key: 'back', label: 'Back', variant: 'secondary', size: 'sm', surface, onPress: asleep(closeDiff) })}
               </Box>
             )}
             <Box flexShrink={0}>
               {Btn(elements, t, {
                 key: 'fetch',
-                label: busy === 'fetch' ? 'fetching…' : 'fetch',
+                label: busy === 'fetch' ? 'Fetching…' : 'Fetch',
                 variant: 'outline',
                 size: 'sm',
                 surface,
@@ -1882,7 +1885,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             <Box flexShrink={0}>
               {Btn(elements, t, {
                 key: 'pull',
-                label: busy === 'pull' ? 'pulling…' : 'pull',
+                label: busy === 'pull' ? 'Pulling…' : 'Pull',
                 variant: 'primary',
                 size: 'sm',
                 surface,
