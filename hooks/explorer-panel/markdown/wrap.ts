@@ -4,33 +4,17 @@
 import type { Inline } from './ast'
 import { plainText } from './inlines'
 import type { Span, SpanStyle } from './rows'
-import { expandTabs, widthOf } from '../../shared/hscroll'
+import { colsOf, expandTabs, widthOf } from '../../shared/hscroll'
 
 /** A run of inline text in one style; `nb` keeps its spaces unbreakable (code spans, kbd). */
 export type Piece = { text: string; style?: SpanStyle; nb?: boolean }
 /** `null` is a hard break (B4, `<br>`). */
 export type Pieces = (Piece | null)[]
 
-/** Columns of a string (M1). */
-export function cols(s: string): number {
-  let n = 0
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i)
-    if (c >= 0x20 && c < 0x7f) {
-      n++
-      continue
-    }
-    const cp = s.codePointAt(i)!
-    if (cp > 0xffff) i++
-    n += widthOf(cp)
-  }
-  return n
-}
-
 /** Total columns of spans. */
 export function spansWidth(spans: readonly Span[]): number {
   let n = 0
-  for (const s of spans) n += cols(s.text)
+  for (const s of spans) n += colsOf(s.text)
   return n
 }
 
@@ -62,8 +46,8 @@ export function flatten(nodes: readonly Inline[], base: SpanStyle | undefined, o
   for (const n of nodes) {
     switch (n.type) {
       case 'text':
-        // a tab is white space, as a newline is (cols counts it as 0)
-        if (n.text) out.push({ text: /[\n\t]/.test(n.text) ? n.text.replace(/[\n\t]/g, ' ') : n.text, style: base })
+        // a tab is white space, as a newline is (colsOf counts it as 0)
+        if (n.text) out.push({ text: n.text.replace(/[\n\t]/g, ' '), style: base })
         break
       case 'softBreak':
         out.push({ text: ' ', style: base })
@@ -113,15 +97,13 @@ export function flatten(nodes: readonly Inline[], base: SpanStyle | undefined, o
   return out
 }
 
-const sameStyle = (a?: SpanStyle, b?: SpanStyle): boolean => a === b
-
 /** Joins neighbours of one style (same object) into one span. */
 function compact(spans: Span[]): Span[] {
   const out: Span[] = []
   for (const s of spans) {
     if (!s.text) continue
     const last = out[out.length - 1]
-    if (last && sameStyle(last.style, s.style)) out[out.length - 1] = { text: last.text + s.text, style: last.style }
+    if (last && last.style === s.style) out[out.length - 1] = { text: last.text + s.text, style: last.style }
     else out.push(s)
   }
   return out
@@ -205,7 +187,7 @@ export function wrap(pieces: Pieces, width: number): Span[][] {
     }
     if (p.nb) {
       word.push({ text: p.text, style: p.style })
-      wordW += cols(p.text)
+      wordW += colsOf(p.text)
       continue
     }
     SPLIT.lastIndex = 0
@@ -220,7 +202,7 @@ export function wrap(pieces: Pieces, width: number): Span[][] {
         }
       } else {
         word.push({ text: m[2]!, style: p.style })
-        wordW += cols(m[2]!)
+        wordW += colsOf(m[2]!)
       }
     }
   }

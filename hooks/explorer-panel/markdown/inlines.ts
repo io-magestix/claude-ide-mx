@@ -372,8 +372,8 @@ class InlineParser {
     }
     const before = charBefore(s, start)
     const after = charAt(s, i)
-    const bWs = isWs(before) || before === '\n'
-    const aWs = isWs(after) || after === '\n'
+    const bWs = isWs(before)
+    const aWs = isWs(after)
     const bP = isPunct(before)
     const aP = isPunct(after)
     const left = !aWs && (!aP || bWs || bP)
@@ -480,11 +480,11 @@ class InlineParser {
       let reflabel: string | null = null
       if (n > 2) reflabel = s.slice(beforeLabel + 1, beforeLabel + n - 1)
       else if (!opener.bracketAfter) reflabel = s.slice(opener.index, startpos - 1)
-      if (n === 0) this.pos = beforeLabel
-      else this.pos = beforeLabel + n
+      this.pos = beforeLabel + n
       if (reflabel !== null && reflabel.length <= 999) {
-        const ref = this.refs.get(normalizeLabel(reflabel))
-        if (ref && normalizeLabel(reflabel) !== '') {
+        const key = normalizeLabel(reflabel)
+        const ref = this.refs.get(key)
+        if (ref && key !== '') {
           href = ref.href
           title = ref.title
           matched = true
@@ -533,7 +533,7 @@ class InlineParser {
     AUTO_URI.lastIndex = p
     if ((m = AUTO_URI.exec(s))) {
       this.pos += m[0].length
-      this.append({ type: 'link', href: m[1]!, title: '', children: [{ type: 'text', text: m[1]! }], auto: true })
+      this.append({ type: 'link', href: m[1]!, title: '', children: [{ type: 'text', text: m[1]! }] })
       return
     }
     AUTO_EMAIL.lastIndex = p
@@ -544,7 +544,6 @@ class InlineParser {
         href: 'mailto:' + m[1]!,
         title: '',
         children: [{ type: 'text', text: m[1]! }],
-        auto: true,
       })
       return
     }
@@ -728,7 +727,7 @@ function trimUrlEnd(u: string): string {
 }
 
 function validDomain(d: string): boolean {
-  return /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(d) && d.length > 0
+  return /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(d)
 }
 
 const LOCAL_CH = /[A-Za-z0-9.+_-]/
@@ -742,7 +741,7 @@ function linkifyText(t: string): Inline[] | null {
   const push = (start: number, end: number, href: string) => {
     if (start > last) out.push({ type: 'text', text: t.slice(last, start) })
     const label = t.slice(start, end)
-    out.push({ type: 'link', href, title: '', children: [{ type: 'text', text: label }], auto: true })
+    out.push({ type: 'link', href, title: '', children: [{ type: 'text', text: label }] })
     last = end
   }
   while (i < t.length) {

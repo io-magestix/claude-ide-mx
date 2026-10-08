@@ -1,6 +1,6 @@
 import type { ClientModule, ClientSurface } from 'claude-code'
 
-import { rowGesture } from '../shared/row-gesture'
+import { isOnRow, rowGesture } from '../shared/row-gesture'
 import { branchHit } from './git'
 
 type BranchHit = 'arrow' | 'name'
@@ -64,7 +64,7 @@ const BranchClient: ClientModule<Props, State> = (props, surface) => {
 }
 
 const hitAt = (surface: ClientSurface<State>, cells: Cells, x: number, y: number): BranchHit | undefined => {
-  if (y !== 0 || x < 0 || (surface.columns > 0 && x >= surface.columns)) return undefined
+  if (!isOnRow(surface.columns, x, y)) return undefined
 
   return branchHit(cells.props.depth, cells.props.isFolder, x)
 }

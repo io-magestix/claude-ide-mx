@@ -1,8 +1,8 @@
 import type { ClientModule, ClientSurface } from 'claude-code'
 
-import { rowGesture } from '../shared/row-gesture'
+import { isOnRow, rowGesture } from '../shared/row-gesture'
 import { rowHit } from './tree'
-import type { Entry, RowHit } from './tree'
+import type { ChangeMark, Entry, RowHit } from './tree'
 
 // One tree row as the Files section draws it: the selection mark, a rail per
 // depth level, the dir arrow, the name (already cut to the room), then its
@@ -19,11 +19,11 @@ type Props = {
   kind: Entry['kind']
   isExpanded: boolean
   isSelected: boolean
-  isMarked?: boolean // in the multi-selection: drawn as the selected row
+  isMarked: boolean // in the multi-selection: drawn as the selected row
   isCursor: boolean
   isIgnored: boolean
   label: string
-  change?: '+' | '*'
+  change?: ChangeMark
   colors: { accent: string; border: string; muted: string; selection: string; change: string }
 }
 
@@ -46,7 +46,7 @@ const RowClient: ClientModule<Props, State> = (props, surface) => {
     surface.state.cells.props = props
   }
   const { colors } = props
-  const isLit = props.isSelected || props.isMarked === true
+  const isLit = props.isSelected || props.isMarked
 
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isLit ? colors.selection : undefined}>
@@ -64,7 +64,7 @@ const RowClient: ClientModule<Props, State> = (props, surface) => {
 }
 
 const hitAt = (surface: ClientSurface<State>, cells: Cells, x: number, y: number): RowHit | undefined => {
-  if (y !== 0 || x < 0 || (surface.columns > 0 && x >= surface.columns)) return undefined
+  if (!isOnRow(surface.columns, x, y)) return undefined
 
   return rowHit(cells.props.depth, cells.props.kind, x)
 }

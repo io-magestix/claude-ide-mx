@@ -458,11 +458,9 @@ test('pathTree: groups by /, leaves first, collapsed folders hide their rows', (
   expect(pathTree(items, new Set(), 'c:')[3]).toMatchObject({ key: 'c:src/ui' })
 })
 
-test('changeRows: list is sorted full paths, tree groups folders', () => {
+test('changeRows: sorted, grouped by folder', () => {
   const changes = parseStatus(['?? src/b.ts', ' M a.txt', ''].join('\0'))
-  const list = changeRows(changes, 'list', new Set())
-  expect(list.map(r => (r.kind === 'leaf' ? r.name : ''))).toEqual(['a.txt', 'src/b.ts'])
-  const tree = changeRows(changes, 'tree', new Set())
+  const tree = changeRows(changes, new Set())
   expect(tree.map(r => r.name)).toEqual(['a.txt', 'src', 'b.ts'])
 })
 
@@ -536,7 +534,7 @@ test('parseNameStatus: modify, add, delete, rename, path with spaces', () => {
     ['old.txt', undefined, 'D'],
     ['src/b.ts', 'src/a.ts', 'R'],
   ])
-  expect(changeRows(changes, 'list', new Set()).length).toBe(5)
+  expect(changeRows(changes, new Set()).filter(r => r.kind === 'leaf').length).toBe(5)
 })
 
 test('parseNameStatus: a merge lists its first-parent files', () => {

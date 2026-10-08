@@ -266,7 +266,7 @@ test('I9 images: inline placeholder muted with dim title; a lone image is an ima
   const L = lay('text ![alt](a.png "T") more\n\n![solo](b.png "t2")', 40)
   expect(plainRow(L.rows[0]!)).toBe('text 🖼 alt T more')
   expect(find(L, 'T')!.style).toEqual({ color: 'muted', dim: true })
-  expect(L.rows[2]).toEqual({ kind: 'image', prefix: [], src: 'b.png', alt: 'solo', title: 't2' })
+  expect(L.rows[2]).toEqual({ kind: 'image', prefix: [], src: 'b.png', alt: 'solo' })
 })
 
 // ---- B19 / B20 / B21 ----

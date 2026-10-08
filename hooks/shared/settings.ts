@@ -3,7 +3,7 @@
 import type { GitState, SettingsState } from '../../types'
 import { KEYMAPS, mergeKeymap } from '../explorer-panel/editor'
 import type { Keymap } from '../explorer-panel/editor'
-import { sessionHex } from './color'
+import { mixHex, sessionHex } from './color'
 import { themeFromClaudeCode } from './term-theme'
 import type { TermScheme } from './term-theme'
 import type { Theme } from './theme'
@@ -45,17 +45,6 @@ export const settingsOf = (raw: unknown): SettingsState | undefined => {
   return out
 }
 
-// '#rrggbb' moved toward white by `amount` (0..1); other strings unchanged.
-const lighten = (hex: string, amount: number): string => {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex)
-  if (m === null) return hex
-  const n = parseInt(m[1] as string, 16)
-  const k = Math.min(1, Math.max(0, amount))
-  const c = (v: number) => Math.round(v + (255 - v) * k).toString(16).padStart(2, '0')
-
-  return '#' + c((n >> 16) & 255) + c((n >> 8) & 255) + c(n & 255)
-}
-
 // The theme the panels draw with: Claude Code's `/config` theme (painted on
 // the terminal's scheme while one is known), its accent (and the focus ring,
 // hover and text on it) taken from the `/color` session color when
@@ -70,10 +59,15 @@ export const resolveTheme = (
   if (!follow || sessionColor === '') return theme
   const accent = sessionHex(sessionColor)
 
-  return { ...theme, accent, focus: accent, accentHover: lighten(accent, 0.2), accentText: contrast(accent) }
+  return { ...theme, accent, focus: accent, accentHover: mixHex(accent, '#ffffff', 0.2), accentText: contrast(accent) }
 }
 
 export type KeyConfig = { editorKeymap?: unknown; editorKeys?: unknown }
+
+// The editor's preset: settings `keymap`, else userConfig `editorKeymap`,
+// else jetbrains.
+export const keymapNameOf = (userConfig: KeyConfig | undefined, settings: SettingsState | undefined): 'jetbrains' | 'vscode' =>
+  settings?.keymap ?? (userConfig?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains')
 
 // The editor keymap: preset (settings `keymap`, else userConfig
 // `editorKeymap`, else jetbrains) <- userConfig `editorKeys` <- settings
@@ -82,7 +76,7 @@ export const mergeKeys = (
   userConfig: KeyConfig | undefined,
   settings: SettingsState | undefined,
 ): { keymap: Keymap; errors: string[] } => {
-  const name = settings?.keymap ?? (userConfig?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains')
+  const name = keymapNameOf(userConfig, settings)
   const userKeys = typeof userConfig?.editorKeys === 'string' ? userConfig.editorKeys : undefined
   const fromUser = mergeKeymap(KEYMAPS[name], userKeys)
   const fromSettings = mergeKeymap(fromUser.keymap, settings?.keys)

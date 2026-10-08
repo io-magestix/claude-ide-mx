@@ -1,5 +1,5 @@
 /*
- * Component library of the ui-kit mod: pure functions (el, theme, props) -> tree.
+ * Component library of the panels: pure functions (el, theme, props) -> tree.
  * No `$` in here; each pane's index.tsx passes its handlers as callbacks.
  *
  * Findings (kit-verified = checked with the test kit; paint is NOT checked, the kit
@@ -10,7 +10,7 @@
  *   keyed Box chrome (backgroundColor, hover) > plain Button (label, press). A Button
  *   has no color prop: its label is the terminal's default foreground, assumed light
  *   (`#e6e6e6`). Fills are therefore darkened by `onDefaultFg` (WCAG contrast >= 4.5 against
- *   that foreground); outline/ghost/link have no fill on a dark theme. On a light theme (bg
+ *   that foreground); ghost has no fill on a dark theme. On a light theme (bg
  *   luminance > 0.5) the page is white while labels stay light, so `chromeBg` gives those
  *   controls a darkened-surface fill. Colored glyphs (radio, switch track, pill caps)
  *   are a separate Text BESIDE the Button, never under it. Button `hover` (underline) works
@@ -26,19 +26,9 @@ import type { ElementTable, RenderChildren, RenderSurface } from 'claude-code'
 
 import type { Theme } from './theme'
 
-type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'link'
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
 const isTerminal = (surface: RenderSurface | undefined): boolean => (surface ?? 'terminal') === 'terminal'
-
-/** '#000000' or '#ffffff', whichever reads on `hex`. */
-export function contrast(hex: string): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex)
-  if (m === null) return '#ffffff'
-  const n = parseInt(m[1] as string, 16)
-  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
-
-  return lum > 0.6 ? '#000000' : '#ffffff'
-}
 
 const rgb = (hex: string): [number, number, number] | undefined => {
   const m = /^#([0-9a-f]{6})$/i.exec(hex)
@@ -46,6 +36,15 @@ const rgb = (hex: string): [number, number, number] | undefined => {
   const n = parseInt(m[1] as string, 16)
 
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+/** '#000000' or '#ffffff', whichever reads on `hex`. */
+export function contrast(hex: string): string {
+  const c = rgb(hex)
+  if (c === undefined) return '#ffffff'
+  const [r, g, b] = c
+
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#000000' : '#ffffff'
 }
 
 /** WCAG relative luminance (0..1) of a hex color; 0 when unparsable. */
@@ -92,8 +91,6 @@ const chromeBg = (t: Theme): string | undefined => (luminance(t.bg) > 0.5 ? onDe
 export type BtnProps = {
   label: string
   variant?: Variant
-  size?: 'sm' | 'md' // sm: one row; md: three rows with a round border
-  icon?: string
   pill?: boolean
   onPress: () => void
   key: string
@@ -101,61 +98,39 @@ export type BtnProps = {
 }
 
 /**
- * Styled button. Terminal: keyed Box chrome (bg, round border, hover) + colored Text label
- * + an absolute plain Button over it. Other surfaces: the native Button.
+ * Styled one-row button. Terminal: keyed Box chrome (bg, hover) around a plain Button
+ * carrying the label. Other surfaces: the native Button.
  */
 export function Btn(el: ElementTable, t: Theme, p: BtnProps) {
   const { Box, Text, Button } = el
   const variant = p.variant ?? 'secondary'
-  const text = (p.icon !== undefined ? p.icon + ' ' : '') + p.label
   if (!isTerminal(p.surface)) {
-    return <Button key={p.key} label={text} variant={variant === 'primary' ? 'primary' : variant === 'secondary' ? 'secondary' : undefined} onPress={p.onPress} />
+    return <Button key={p.key} label={p.label} variant={variant === 'primary' ? 'primary' : variant === 'secondary' ? 'secondary' : undefined} onPress={p.onPress} />
   }
 
-  const light = chromeBg(t)
   const fill = {
-    primary: { bg: onDefaultFg(t.accent), hover: onDefaultFg(t.accentHover), border: onDefaultFg(t.accent) },
-    secondary: { bg: onDefaultFg(t.surface), hover: onDefaultFg(t.surfaceHover), border: onDefaultFg(t.surface) },
-    outline: { bg: light, hover: onDefaultFg(t.surfaceHover), border: t.borderStrong },
-    ghost: { bg: light, hover: onDefaultFg(t.surfaceHover), border: undefined },
-    danger: { bg: onDefaultFg(t.danger), hover: onDefaultFg(t.danger), border: onDefaultFg(t.danger) },
-    link: { bg: light, hover: undefined, border: undefined },
+    primary: { bg: onDefaultFg(t.accent), hover: onDefaultFg(t.accentHover) },
+    secondary: { bg: onDefaultFg(t.surface), hover: onDefaultFg(t.surfaceHover) },
+    ghost: { bg: chromeBg(t), hover: onDefaultFg(t.surfaceHover) },
+    danger: { bg: onDefaultFg(t.danger), hover: onDefaultFg(t.danger) },
   }[variant]
-  const sm = p.size === 'sm'
-  const bordered = !sm && fill.border !== undefined && !p.pill
-  const hoverBorderColor = bordered ? (variant === 'outline' ? t.focus : variant === 'danger' ? undefined : fill.hover) ?? fill.border : undefined
   const label = (
-    <Button key={p.key} plain label={text} hover={{ underline: true }} onPress={p.onPress} />
+    <Button key={p.key} plain label={p.label} hover={{ underline: true }} onPress={p.onPress} />
   )
-  // A hover prop set to undefined is refused ("borderColor is a undefined"): leave the key out.
-  const hover =
-    fill.hover === undefined
-      ? undefined
-      : hoverBorderColor !== undefined
-        ? { backgroundColor: fill.hover, borderColor: hoverBorderColor }
-        : { backgroundColor: fill.hover }
 
   if (p.pill) {
     const cap = fill.bg ?? onDefaultFg(t.surface)
-    const capHover = fill.hover ?? cap
     return (
       <Box key={p.key + ':chrome'} flexDirection="row">
-        <Text color={cap} hover={{ color: capHover }}>▐</Text>
-        <Box backgroundColor={cap} hover={{ backgroundColor: capHover }}>{label}</Box>
-        <Text color={cap} hover={{ color: capHover }}>▌</Text>
+        <Text color={cap} hover={{ color: fill.hover }}>▐</Text>
+        <Box backgroundColor={cap} hover={{ backgroundColor: fill.hover }}>{label}</Box>
+        <Text color={cap} hover={{ color: fill.hover }}>▌</Text>
       </Box>
     )
   }
 
   return (
-    <Box
-      key={p.key + ':chrome'}
-      backgroundColor={fill.bg}
-      borderStyle={bordered ? 'round' : undefined}
-      borderColor={bordered ? fill.border : undefined}
-      paddingX={sm ? 1 : 2}
-      hover={hover}
-    >
+    <Box key={p.key + ':chrome'} backgroundColor={fill.bg} paddingX={1} hover={{ backgroundColor: fill.hover }}>
       {label}
     </Box>
   )
@@ -189,61 +164,38 @@ export function Badge(el: ElementTable, t: Theme, p: { label: string; variant?: 
 
 /** Pressable pill: selected = primary, else secondary. */
 export function Chip(el: ElementTable, t: Theme, p: { label: string; selected?: boolean; onPress: () => void; key: string; surface?: RenderSurface }) {
-  return Btn(el, t, { label: p.label, variant: p.selected === true ? 'primary' : 'secondary', size: 'sm', pill: true, onPress: p.onPress, key: p.key, surface: p.surface })
+  return Btn(el, t, { label: p.label, variant: p.selected === true ? 'primary' : 'secondary', pill: true, onPress: p.onPress, key: p.key, surface: p.surface })
 }
 
 export type TabsProps = {
   tabs: readonly { id: string; label: string }[]
   selected: string
   onSelect: (id: string) => void
-  style?: 'underline' | 'pill'
   surface?: RenderSurface
-  keyPrefix?: string // Button keys are `<prefix>:<id>`, default `tab`; unique per drawing
-  gap?: number // cells between tabs; pill tabs set apart each keep their own fill
+  gap: number // cells between tabs
 }
 
-/** Tab strip; each tab's Button key is `<keyPrefix ?? 'tab'>:<id>`. */
+/** Tab strip: on the terminal, pills set apart, each with its own fill. Each tab's Button key is `tab:<id>`. */
 export function Tabs(el: ElementTable, t: Theme, p: TabsProps) {
-  const { Box, Text, Button } = el
-  const pre = p.keyPrefix ?? 'tab'
+  const { Box, Button } = el
   if (!isTerminal(p.surface)) {
     return (
-      <Box flexDirection="row" gap={p.gap ?? 1}>
+      <Box flexDirection="row" gap={p.gap}>
         {p.tabs.map(tab => (
-          <Button key={pre + ':' + tab.id} label={tab.label} variant={tab.id === p.selected ? 'primary' : 'secondary'} onPress={() => p.onSelect(tab.id)} />
+          <Button key={'tab:' + tab.id} label={tab.label} variant={tab.id === p.selected ? 'primary' : 'secondary'} onPress={() => p.onSelect(tab.id)} />
         ))}
-      </Box>
-    )
-  }
-  if (p.style === 'pill') {
-    const isApart = (p.gap ?? 0) > 0
-    return (
-      <Box flexDirection="row" backgroundColor={isApart ? undefined : onDefaultFg(t.surface)} alignSelf="flex-start" gap={p.gap ?? 0}>
-        {p.tabs.map(tab => {
-          const on = tab.id === p.selected
-
-          return (
-            <Box key={pre + ':' + tab.id + ':chrome'} backgroundColor={on ? onDefaultFg(t.accent) : isApart ? onDefaultFg(t.surface) : undefined} paddingX={1} hover={on ? undefined : { backgroundColor: onDefaultFg(t.surfaceHover) }}>
-              <Button key={pre + ':' + tab.id} plain label={tab.label} onPress={() => p.onSelect(tab.id)} />
-            </Box>
-          )
-        })}
       </Box>
     )
   }
 
   return (
-    <Box flexDirection="row" gap={0}>
+    <Box flexDirection="row" alignSelf="flex-start" gap={p.gap}>
       {p.tabs.map(tab => {
         const on = tab.id === p.selected
-        const w = tab.label.length + 4
 
         return (
-          <Box key={pre + ':' + tab.id + ':chrome'} flexDirection="column" hover={on ? undefined : { backgroundColor: onDefaultFg(t.surface) }}>
-            <Box paddingX={2} backgroundColor={chromeBg(t)}>
-              <Button key={pre + ':' + tab.id} plain label={tab.label} hover={{ underline: true }} onPress={() => p.onSelect(tab.id)} />
-            </Box>
-            <Text color={on ? t.accent : t.border}>{(on ? '━' : '─').repeat(w)}</Text>
+          <Box key={'tab:' + tab.id + ':chrome'} backgroundColor={onDefaultFg(on ? t.accent : t.surface)} paddingX={1} hover={on ? undefined : { backgroundColor: onDefaultFg(t.surfaceHover) }}>
+            <Button key={'tab:' + tab.id} plain label={tab.label} onPress={() => p.onSelect(tab.id)} />
           </Box>
         )
       })}
@@ -268,26 +220,23 @@ function Pressable(el: ElementTable, t: Theme, p: { key: string; glyph: string; 
 
 export type FieldProps = {
   label: string
-  children?: RenderChildren // the native Input / Select
+  children?: RenderChildren // the native Input
   helper?: string
   error?: string
-  valid?: boolean // filled and valid: accent frame
   key?: string
-  required?: boolean
 }
 
 /**
- * Field anatomy: bold label, a round frame around the control (danger when `error`, accent when `valid`),
+ * Field anatomy: bold label, a round frame around the control (danger when `error`),
  * muted helper, danger error text (replaces the helper).
  */
 export function Field(el: ElementTable, t: Theme, p: FieldProps) {
   const { Box, Text } = el
-  const frame = p.error !== undefined ? t.danger : p.valid === true ? t.accent : t.border
 
   return (
     <Box key={p.key} flexDirection="column">
-      <Text bold color={t.text}>{p.label}{p.required === true ? <Text color={t.danger}> *</Text> : null}</Text>
-      <Box borderStyle="round" borderColor={frame} backgroundColor={t.bg} paddingX={1}>
+      <Text bold color={t.text}>{p.label}</Text>
+      <Box borderStyle="round" borderColor={p.error !== undefined ? t.danger : t.border} backgroundColor={t.bg} paddingX={1}>
         {p.children}
       </Box>
       {p.error !== undefined ? <Text color={t.danger}>✕ {p.error}</Text> : p.helper !== undefined ? <Text color={t.muted}>{p.helper}</Text> : null}
@@ -295,23 +244,15 @@ export function Field(el: ElementTable, t: Theme, p: FieldProps) {
   )
 }
 
-/** Radio options in a row or a column; a `disabled` one is muted text, no Button: it cannot be pressed or focused. */
-export function RadioGroup(el: ElementTable, t: Theme, p: { key: string; options: readonly { value: string; label: string; disabled?: boolean }[]; value: string; onChange: (v: string) => void; row?: boolean; surface?: RenderSurface }) {
-  const { Box, Text } = el
+/** Radio options in a row, `◉` / `○`; each Button key is `<key>:<option value>`. */
+export function RadioGroup(el: ElementTable, t: Theme, p: { key: string; options: readonly { value: string; label: string }[]; value: string; onChange: (v: string) => void; surface?: RenderSurface }) {
+  const { Box } = el
 
   return (
-    // A row wraps where it runs out of room (no row gap), never squeezing a glyph away.
-    <Box key={p.key} flexDirection={p.row === true ? 'row' : 'column'} flexWrap={p.row === true ? 'wrap' : 'nowrap'} columnGap={p.row === true ? 2 : 0}>
+    // The row wraps where it runs out of room (no row gap), never squeezing a glyph away.
+    <Box key={p.key} flexDirection="row" flexWrap="wrap" columnGap={2}>
       {p.options.map(o => {
         const on = o.value === p.value
-
-        if (o.disabled === true) {
-          return (
-            <Box key={p.key + ':' + o.value + ':off'} flexDirection="row" flexShrink={0}>
-              <Text color={t.muted}>{(on ? '◉' : '○') + ' ' + o.label}</Text>
-            </Box>
-          )
-        }
 
         return Pressable(el, t, { key: p.key + ':' + o.value, glyph: on ? '◉' : '○', color: on ? t.accent : t.text, label: o.label, onPress: () => p.onChange(o.value), surface: p.surface })
       })}
@@ -332,14 +273,13 @@ export function Switch(el: ElementTable, t: Theme, p: { key: string; label: stri
 export type ModalBtnProps = {
   key: string
   label: string
-  variant: 'ghost' | 'primary' | 'danger'
+  variant: 'ghost' | 'primary'
   onPress: () => void
   dismiss?: boolean // role: 'dismiss'
-  autoFocus?: boolean
   surface?: RenderSurface
 }
 
-/** Footer button of a modal: like Btn, plus `autoFocus` and the dismiss role. */
+/** Footer button of a modal: like Btn, plus the dismiss role. */
 export function ModalBtn(el: ElementTable, t: Theme, p: ModalBtnProps) {
   const { Box, Button } = el
   if (!isTerminal(p.surface)) {
@@ -349,16 +289,15 @@ export function ModalBtn(el: ElementTable, t: Theme, p: ModalBtnProps) {
         label={p.label}
         variant={p.variant === 'primary' ? 'primary' : undefined}
         role={p.dismiss === true ? 'dismiss' : undefined}
-        autoFocus={p.autoFocus === true ? true : undefined}
         onPress={p.onPress}
       />
     )
   }
-  const bg = p.variant === 'primary' ? onDefaultFg(t.accent) : p.variant === 'danger' ? onDefaultFg(t.danger) : chromeBg(t)
+  const bg = p.variant === 'primary' ? onDefaultFg(t.accent) : chromeBg(t)
 
   return (
     <Box key={p.key + ':chrome'} backgroundColor={bg} paddingX={1} hover={{ backgroundColor: bg ?? onDefaultFg(t.surfaceHover) }}>
-      <Button key={p.key} plain label={p.label} role={p.dismiss === true ? 'dismiss' : undefined} autoFocus={p.autoFocus === true ? true : undefined} onPress={p.onPress} />
+      <Button key={p.key} plain label={p.label} role={p.dismiss === true ? 'dismiss' : undefined} onPress={p.onPress} />
     </Box>
   )
 }

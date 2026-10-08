@@ -43,7 +43,6 @@ test('Btn terminal: keyed chrome around a plain Button, hover set', () => {
   const tree = Btn(el, t, { key: 'go', label: 'Go', variant: 'primary', onPress: press })
   expect(tree.props.key).toBe('go:chrome')
   expect(tree.props.backgroundColor).toBe(onDefaultFg(t.accent))
-  expect(tree.props.borderStyle).toBe('round')
   expect(tree.props.hover.backgroundColor).toBe(onDefaultFg(t.accentHover))
   const button = find(tree, x => x.type === 'Button')
   expect(button.props.key).toBe('go')
@@ -52,14 +51,9 @@ test('Btn terminal: keyed chrome around a plain Button, hover set', () => {
   expect(button.props.onPress).toBe(press)
 })
 
-test('Btn variants: outline has a border and no fill, ghost neither, sm drops the border', () => {
-  const o = Btn(el, t, { key: 'o', label: 'O', variant: 'outline', onPress: () => {} })
-  expect(o.props.backgroundColor).toBeUndefined()
-  expect(o.props.borderColor).toBe(t.borderStrong)
+test('Btn variants: ghost has no fill on a dark theme, danger fills', () => {
   const g = Btn(el, t, { key: 'g', label: 'G', variant: 'ghost', onPress: () => {} })
-  expect(g.props.borderStyle).toBeUndefined()
-  const s = Btn(el, t, { key: 's', label: 'S', variant: 'secondary', size: 'sm', onPress: () => {} })
-  expect(s.props.borderStyle).toBeUndefined()
+  expect(g.props.backgroundColor).toBeUndefined()
   const d = Btn(el, t, { key: 'd', label: 'D', variant: 'danger', onPress: () => {} })
   expect(d.props.backgroundColor).toBe(onDefaultFg(t.danger))
 })
@@ -84,22 +78,23 @@ test('Badge: a destructive one fills with danger', () => {
 test('Tabs: one Button per tab keyed tab:<id>, press selects', () => {
   const seen: string[] = []
   const tabs = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }]
-  for (const style of ['underline', 'pill'] as const) {
-    const tree = Tabs(el, t, { tabs, selected: 'a', style, onSelect: (id: string) => seen.push(id) })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const tree = Tabs(el, t, { tabs, selected: 'a', gap: 2, surface, onSelect: (id: string) => seen.push(id) })
     const b = find(tree, x => x.type === 'Button' && x.props.key === 'tab:b')
     b.props.onPress()
   }
   expect(seen).toEqual(['b', 'b'])
 })
 
-test('Field frame: danger on error, accent when valid, error replaces helper', () => {
+test('Field frame: danger on error, error replaces helper', () => {
   const Field: any = Fi_
   const bad = Field(el, t, { label: 'Email', helper: 'help', error: 'bad' })
   expect(find(bad, x => x.props.borderStyle === 'round').props.borderColor).toBe(t.danger)
   expect(find(bad, x => x.type === 'Text' && txt(x) === '✕ bad')).toBeDefined()
   expect(find(bad, x => x.type === 'Text' && txt(x) === 'help')).toBeUndefined()
-  const good = Field(el, t, { label: 'Email', valid: true })
-  expect(find(good, x => x.props.borderStyle === 'round').props.borderColor).toBe(t.accent)
+  const good = Field(el, t, { label: 'Email', helper: 'help' })
+  expect(find(good, x => x.props.borderStyle === 'round').props.borderColor).toBe(t.border)
+  expect(find(good, x => x.type === 'Text' && txt(x) === 'help')).toBeDefined()
 })
 
 test('RadioGroup, Switch glyphs and keys', () => {
@@ -108,11 +103,6 @@ test('RadioGroup, Switch glyphs and keys', () => {
   expect(find(rg, x => x.type === 'Text' && txt(x) === '◉')).toBeDefined()
   expect(find(rg, x => x.type === 'Button' && x.props.label === ' B')).toBeDefined()
   expect(find(rg, x => x.type === 'Button' && x.props.key === 'r:a')).toBeDefined()
-  // a disabled option: muted text, no Button
-  const off = RadioGroup(el, t, { key: 'r', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B', disabled: true }], value: 'a', onChange: () => {} })
-  expect(find(off, x => x.type === 'Button' && x.props.key === 'r:b')).toBeUndefined()
-  expect(find(off, x => x.type === 'Text' && txt(x) === '○ B').props.color).toBe(t.muted)
-  expect(find(off, x => x.type === 'Button' && x.props.key === 'r:a')).toBeDefined()
   const sw = Switch(el, t, { key: 's', label: 'n', on: true, onChange: () => {} })
   expect(find(sw, x => x.type === 'Text' && txt(x) === '━━●').props.color).toBe(t.accent)
   expect(find(sw, x => x.type === 'Button').props.label).toBe(' n')

@@ -11,6 +11,7 @@ import {
   afterDelete,
   clip,
   deleteTarget,
+  dirsAbove,
   fitLabel,
   flatten,
   formatSize,
@@ -58,11 +59,11 @@ import { anchorRow, expandPictures, isLinkable, linkHits, linkTarget, localPath 
 import type { LinkHit, MdView, Picture, ViewRow } from './markdown/view'
 import { headNameArgv, parseStatus, statusArgv } from '../git-panel/git'
 import { lastAgentColor, parseColorAnswer } from '../shared/color'
-import { H_THUMB, H_TRACK, scrollbar } from '../shared/scrollbar'
+import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from '../shared/scrollbar'
 import { sliceCols, widest } from '../shared/hscroll'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
-import { GIT_PREFIX, MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
-import { DEFAULTS, SETTINGS_KEY, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
+import { MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
+import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyScheme, resetThemeEnv, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import type { Theme } from '../shared/theme'
@@ -84,7 +85,7 @@ const sessionColor = atom<'ide-panes', 'sessionColor'>(
   { plugin: 'ide-panes', key: 'sessionColor' } as const,
   '',
 )
-// The Settings values (theme, keymap, panel defaults); $.store `settings` seeds it.
+// The Settings values (accent, keymap, panel defaults, session); $.store `settings` seeds it.
 const settings = atom<'ide-panes', 'settings'>(
   { plugin: 'ide-panes', key: 'settings' } as const,
   {} satisfies SettingsState,
@@ -104,8 +105,8 @@ let host: typeof PANE | typeof SPLIT_PANE = PANE
 // The split pane's half the keyboard was last in: the scroll keys go there.
 let splitFocus: 'explorer' | 'git' = 'explorer'
 
-const paneIsOpen = async ($: EngineInterface, id: string): Promise<boolean> =>
-  (await $.ui.panes()).some(pane => pane.id === id)
+const paneIsOpen = async ($: EngineInterface, ...ids: string[]): Promise<boolean> =>
+  (await $.ui.panes()).some(pane => ids.includes(pane.id))
 
 // The `$.ui.open` arguments of the pane the Explorer is drawn in: the split
 // pane asks for its share of the window (docked; the person's own drag of the
@@ -224,9 +225,6 @@ let widthCache: { key: string; cols: number } | undefined
 // Module-level: a reload just drops the field.
 let naming: string | undefined
 
-const clamp = (value: number, max: number): number =>
-  Math.min(Math.max(0, value), Math.max(0, max))
-
 // The Edit section bar's total columns: the widest line plus the caret cell
 // past its end, which the client's follow logic scrolls to (End on that line).
 const editTotal = (hview: HView): number => hview.widest + 1
@@ -286,7 +284,7 @@ const watchTheme = ($: EngineInterface): void => {
     themeWatch = $.clock.after(THEME_POLL_MS, async () => {
       themeWatch = undefined
       try {
-        if (!(await $.ui.panes()).some(pane => pane.id === PANE || pane.id === SPLIT_PANE)) return
+        if (!(await paneIsOpen($, PANE, SPLIT_PANE))) return
         const before = [themeEnv.mtime, themeEnv.ccTheme].join('\0')
         await explorerThemeEnv($, true)
         if ([themeEnv.mtime, themeEnv.ccTheme].join('\0') !== before) $.ui.invalidate('ui.render')
@@ -387,8 +385,7 @@ const watchRepo = ($: EngineInterface, root: string): void => {
       repoWatch = undefined
       try {
         // Both panes closed: the next drawing watches again.
-        const panes = await $.ui.panes()
-        if (!panes.some(pane => pane.id === PANE || pane.id === SPLIT_PANE)) return
+        if (!(await paneIsOpen($, PANE, SPLIT_PANE))) return
         if ((await gitOut($, root, ['git', '-C', root, 'rev-parse', '--show-toplevel'])) === undefined) {
           watchRepo($, root)
 
@@ -606,7 +603,7 @@ const marksOf = (state: ExplorerState): readonly string[] => state.marked ?? []
 
 const isMulti = (state: ExplorerState): boolean => marksOf(state).length >= 2
 
-// A mark toggled (ctrl-click, the mark cell, `m`): the first one adds the
+// A mark toggled (ctrl-click, the mark cell, the `Mark` button): the first one adds the
 // selection too, as an IDE's ctrl-click adds to it. Left with one path, the
 // marks go and that path is selected.
 const markToggle = async ($: EngineInterface, path: string): Promise<void> => {
@@ -619,7 +616,7 @@ const markToggle = async ($: EngineInterface, path: string): Promise<void> => {
 const markRange = async ($: EngineInterface, path: string): Promise<void> => {
   const state = await read($, explorer)
   const root = await rootOf($, state)
-  const rows = flatten(listings, new Set(state.expanded), root, { mode: state.mode })
+  const rows = treeRowsOf(state, root)
   await settleMarks($, state, rangeOf(rows, state.selected, path), path)
 }
 
@@ -673,7 +670,7 @@ const pruneGone = async ($: EngineInterface): Promise<void> => {
 // The marked paths in tree order (a mark in a closed dir last).
 const inRowOrder = async ($: EngineInterface, state: ExplorerState): Promise<string[]> => {
   const root = await rootOf($, state)
-  const rows = flatten(listings, new Set(state.expanded), root, { mode: state.mode })
+  const rows = treeRowsOf(state, root)
   const marks = marksOf(state)
   const shown = rows.filter(row => marks.includes(row.path)).map(row => row.path)
 
@@ -802,6 +799,22 @@ let imageProbe: 'unknown' | 'pending' | 'probing' | 'ok' | 'alt' = 'unknown'
 
 const isRemote = (surface: string): boolean => surface !== 'terminal'
 
+// The Files rows as the state shows them.
+const treeRowsOf = (state: ExplorerState, root: string): Row[] =>
+  flatten(listings, new Set(state.expanded), root, { mode: state.mode })
+
+// The cache key of one file version as a surface kind previews it.
+const versionKey = (surface: string, path: string, mtimeMs: number): string =>
+  (isRemote(surface) ? 'remote' : 'terminal') + '\0' + path + '\0' + Math.trunc(mtimeMs)
+
+// Why a picture is not drawn: a remote surface, or a terminal whose blit
+// probe answered `alt`.
+const NOTE_REMOTE = 'image preview needs a kitty-graphics terminal'
+const NOTE_ALT = "terminal can't draw images"
+
+// The surface a `$.ui.copy` goes to.
+type CopySurface = Parameters<EngineInterface['ui']['copy']>[0]['surface']
+
 // Exit 0 of `argv`; a missing binary throws, which is a no.
 const runs = async ($: EngineInterface, argv: string[]): Promise<boolean> => {
   try {
@@ -917,7 +930,7 @@ const loadImage = (
   stat: { size: number; mtimeMs: number },
   surface: string,
 ): Promise<ImagePreview> => {
-  const key = (isRemote(surface) ? 'remote' : 'terminal') + '\0' + row.path + '\0' + Math.trunc(stat.mtimeMs)
+  const key = versionKey(surface, row.path, stat.mtimeMs)
   const known = pictures.get(key)
   if (known !== undefined) return known
   const made = makeImage($, row, stat, surface)
@@ -953,10 +966,10 @@ const makeImage = async (
           : { ...base, note: text === undefined ? 'cannot read' : 'too large to draw' }
     } else {
       const size = ext(row.name) === 'png' ? await pngSizeOf($, row.path, stat.size) : undefined
-      made = { ...base, ...size, note: 'image preview needs a kitty-graphics terminal' }
+      made = { ...base, ...size, note: NOTE_REMOTE }
     }
   } else if (imageProbe === 'alt') {
-    made = { ...base, note: "terminal can't draw images" }
+    made = { ...base, note: NOTE_ALT }
   } else {
     // A PNG draws from the file itself; a `.png` that isn't one is converted.
     const own = ext(row.name) === 'png' ? await pngSizeOf($, row.path, stat.size) : undefined
@@ -984,12 +997,7 @@ const makeImage = async (
         if (failure !== undefined) {
           made = { ...base, note: 'cannot convert: ' + failure }
         } else {
-          let outBytes = 0
-          try {
-            outBytes = (await $.fs.stat(out)).size
-          } catch {
-            outBytes = 0
-          }
+          const outBytes = (await statOf($, out))?.size ?? 0
           const size = await pngSizeOf($, out, outBytes)
           made = { ...base, png: out, ...size }
         }
@@ -1077,13 +1085,8 @@ const markdownView = async (
       const path = localPath(row.src, preview.path, root)
       // Only a built-in picture type reaches the converter.
       if (path === undefined || !isPictureFile(nameOf(path), customEngines)) continue
-      let stat: Awaited<ReturnType<EngineInterface['fs']['stat']>>
-      try {
-        stat = await $.fs.stat(path)
-      } catch {
-        continue
-      }
-      if (stat.kind !== 'file') continue
+      const stat = await statOf($, path)
+      if (stat === undefined || stat.kind !== 'file') continue
       const name = nameOf(path)
       const pic = await loadImage($, { path, name, depth: 0, kind: 'file', isExpanded: false }, stat, surface)
       if (pic.png === undefined || pic.note !== undefined) continue
@@ -1144,7 +1147,7 @@ const followLink = async ($: EngineInterface, href: string): Promise<void> => {
 }
 
 // The repo toplevel a root's paths are named from (the root itself outside
-// a repo); `copyPath` fills it, `refresh` clears it.
+// a repo); `copyPath` and `footerOf` fill it, `refresh` and `watchRepo` clear it.
 const toplevels = new Map<string, string>()
 
 const toplevelOf = async ($: EngineInterface, root: string): Promise<string> => {
@@ -1168,7 +1171,7 @@ const toplevelOf = async ($: EngineInterface, root: string): Promise<string> => 
 const copyPath = async (
   $: EngineInterface,
   path: string,
-  surface: Parameters<EngineInterface['ui']['copy']>[0]['surface'],
+  surface: CopySurface,
 ): Promise<void> => {
   const root = await rootOf($, await read($, explorer))
   const text = relativePath(path, await toplevelOf($, root))
@@ -1180,7 +1183,7 @@ const copyPath = async (
 // marked path (named as `copyPath` names one), one per line, in tree order.
 const copyMarked = async (
   $: EngineInterface,
-  surface: Parameters<EngineInterface['ui']['copy']>[0]['surface'],
+  surface: CopySurface,
 ): Promise<void> => {
   const state = await read($, explorer)
   const base = await toplevelOf($, await rootOf($, state))
@@ -1193,7 +1196,7 @@ const copyMarked = async (
 const rowAt = async ($: EngineInterface, path: string): Promise<Row | undefined> => {
   const state = await read($, explorer)
   const root = await rootOf($, state)
-  const rows = flatten(listings, new Set(state.expanded), root, { mode: state.mode })
+  const rows = treeRowsOf(state, root)
 
   return rows.find(row => row.path === path)
 }
@@ -1204,11 +1207,7 @@ const jump = async ($: EngineInterface, path: string): Promise<void> => {
   if ((await read($, explorer)).edit?.path !== path && (await leaveEdit($, 'select', path))) return
   const state = await read($, explorer)
   const root = await rootOf($, state)
-  const dirs: string[] = []
-  for (let dir = parentOf(path); dir.length > root.length; dir = parentOf(dir)) {
-    dirs.push(dir)
-  }
-  dirs.reverse()
+  const dirs = dirsAbove(path, root)
   const expanded = [...state.expanded, ...dirs.filter(d => !state.expanded.includes(d))]
   await Promise.all([root, ...expanded].map(dir => ensureListed($, dir)))
   const rows = flatten(listings, new Set(expanded), root, { mode: state.mode })
@@ -1244,14 +1243,6 @@ const RANK = { resolved: 0, unresolved: 1, builtin: 2 } as const
 const CUSTOM_TIMEOUT_MS = 10000
 
 // A custom engine's markdown output (`as: markdown`), rendered.
-const customMarkdown = (path: string, mtime: number, text: string): Preview => ({
-  type: 'markdown',
-  path,
-  mtime,
-  text,
-  generated: true,
-})
-
 // A custom engine's preview of a file: its command's stdout as text, code or
 // markdown, or the PNG it wrote at `{out}` through the image path. Cached per
 // surface kind, path and mtime; a failure is metadata and why.
@@ -1262,7 +1253,7 @@ const loadCustom = (
   engine: CustomEngine,
   surface: string,
 ): Promise<Preview> => {
-  const key = (isRemote(surface) ? 'remote' : 'terminal') + '\0' + row.path + '\0' + Math.trunc(stat.mtimeMs)
+  const key = versionKey(surface, row.path, stat.mtimeMs)
   const known = customCache.get(key)
   if (known !== undefined) return known
   const made = runCustom($, row, stat, engine, surface)
@@ -1286,8 +1277,8 @@ const runCustom = async (
   })
   const base: ImagePreview = { type: 'image', path: row.path, mtime, bytes: stat.size }
   // Where no picture can draw, the command is not run.
-  if (engine.as === 'png' && isRemote(surface)) return { ...base, note: 'image preview needs a kitty-graphics terminal' }
-  if (engine.as === 'png' && imageProbe === 'alt') return { ...base, note: "terminal can't draw images" }
+  if (engine.as === 'png' && isRemote(surface)) return { ...base, note: NOTE_REMOTE }
+  if (engine.as === 'png' && imageProbe === 'alt') return { ...base, note: NOTE_ALT }
   // `{out}`: one file per path and mtime beside the converted pictures,
   // removed like them (with the pane, or at the session's end).
   const usesOut = engine.cmd.some(arg => arg.includes('{out}'))
@@ -1319,14 +1310,11 @@ const runCustom = async (
         generated: true,
       }
     case 'markdown':
-      return customMarkdown(row.path, stat.mtimeMs, stdout)
+      return { type: 'markdown', path: row.path, mtime: stat.mtimeMs, text: stdout, generated: true }
     case 'png': {
-      let outBytes: number
-      try {
-        outBytes = (await $.fs.stat(out)).size
-      } catch {
-        return failed('wrote no picture')
-      }
+      const outStat = await statOf($, out)
+      if (outStat === undefined) return failed('wrote no picture')
+      const outBytes = outStat.size
       const size = await pngSizeOf($, out, outBytes)
       if (size === undefined && outBytes <= MAX_PREVIEW_BYTES) return failed('wrote no PNG')
 
@@ -1377,7 +1365,7 @@ const loadPreview = async (
       return { type: 'text', lines: metadata(row.name, stat.size, stat.mtimeMs) }
     }
     // Markdown renders (laid out by the drawing, which knows the width);
-    // `v` shows its source as code below.
+    // the view chip shows its source as code below.
     if (engine === 'markdown' && !isRaw) {
       return { type: 'markdown', path: row.path, mtime: stat.mtimeMs, text }
     }
@@ -1495,7 +1483,7 @@ const toggleSettings = async ($: EngineInterface): Promise<void> => {
   await update($, settingsUi, (u): SettingsUi => (u.open === undefined ? { open: host, before: now } : { ...u, open: host }))
   // The sheet takes the keyboard, its ring on the editor keymap in effect
   // (Enter there changes nothing; Tab walks on to the keys field): see focusOn.
-  focusOn($, 'settings:keymap:' + (now.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains')))
+  focusOn($, 'settings:keymap:' + keymapNameOf(pluginOptions, now))
 }
 
 // A change applies at once (both panels redraw); `done` saves it. A new page
@@ -1603,8 +1591,7 @@ const editorProps = (edit: Edit, t: Theme): EditorProps => {
 
   return {
     path: edit.path,
-    language: languageOf(edit.path.slice(edit.path.lastIndexOf('/') + 1)) ?? '',
-    color: t.accent,
+    language: languageOf(nameOf(edit.path)) ?? '',
     colors: editorColors(t),
     keymap,
     rows: view.editRows,
@@ -1721,19 +1708,18 @@ const createNew = async ($: EngineInterface, dir: string, name: string): Promise
     isTaken = true
   }
   if (isTaken) {
-    await toast($, 'Already exists: ' + relativeDir(parentOf(made.path), root) + made.path.slice(made.path.lastIndexOf('/') + 1))
+    await toast($, 'Already exists: ' + relativeDir(parentOf(made.path), root) + nameOf(made.path))
 
     return
   }
   // Typed into the editor since `new` was pressed: ask again.
   if (await guarded($, 'new', dir)) return
   naming = undefined
-  const dirs: string[] = []
-  for (let at = parentOf(made.path); at.length > root.length; at = parentOf(at)) dirs.push(at)
+  const dirs = dirsAbove(made.path, root)
   await update($, explorer, s => ({
     ...s,
     cursor: made.path,
-    expanded: [...s.expanded, ...dirs.reverse().filter(d => !s.expanded.includes(d))],
+    expanded: [...s.expanded, ...dirs.filter(d => !s.expanded.includes(d))],
   }))
   await startEdit($, made.path)
   $.ui.invalidate('ui.render')
@@ -1858,7 +1844,7 @@ const afterRemoved = async ($: EngineInterface, state: ExplorerState, root: stri
   const isUnder = (at: string): boolean => targets.some(path => at === path || at.startsWith(path + '/'))
   // The rows as they were, less the other targets, to find the neighbour.
   const first = targets[0]!
-  const rows = flatten(listings, new Set(state.expanded), root, { mode: state.mode }).filter(
+  const rows = treeRowsOf(state, root).filter(
     row => row.path === first || !isUnder(row.path),
   )
   const next = afterDelete(rows, first)
@@ -2041,7 +2027,7 @@ const writeDraft = async ($: EngineInterface, text: string): Promise<void> => {
 const editorMessage = async (
   $: EngineInterface,
   data: unknown,
-  surface: Parameters<EngineInterface['ui']['copy']>[0]['surface'],
+  surface: CopySurface,
 ): Promise<{ props?: unknown }> => {
   const edit = (await read($, explorer)).edit
   const d = data as Record<string, unknown> | null
@@ -2053,7 +2039,7 @@ const editorMessage = async (
     if (d.need === 0 || editing.version !== edit.version) {
       if (!(await loadEdit($, edit))) return {}
     }
-    editing.index = Math.min(Math.max(0, d.need), editing.total)
+    editing.index = clamp(d.need, editing.total)
     if (editing.index >= editing.total) editing.parts = []
   } else if (typeof d.dirty === 'boolean' && isCurrent) {
     editing.isDirty = d.dirty
@@ -2188,6 +2174,14 @@ const seedSession = async ($: EngineInterface, carried?: Stash): Promise<void> =
   await syncColor($)
 }
 
+// After Claude wrote `path`: its listing goes, an open editor on it checks
+// the disk, and the panels redraw.
+const afterFileTool = async ($: EngineInterface, path: string): Promise<void> => {
+  dropFile(path)
+  if (path === (await read($, explorer)).edit?.path) await checkDisk($)
+  $.ui.invalidate('ui.render')
+}
+
 export const register = (on: On, options?: PluginOptions): void => {
   pluginOptions = options
   // The theme's sources are read again after a reload.
@@ -2278,27 +2272,21 @@ export const register = (on: On, options?: PluginOptions): void => {
   // One hook per tool: the validator refuses two unmatched tool.call hooks.
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
-    dropFile(e.file_path)
-    if (e.file_path === (await read($, explorer)).edit?.path) await checkDisk($)
-    $.ui.invalidate('ui.render')
+    await afterFileTool($, e.file_path)
 
     return ran
   })
 
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const ran = await next(e)
-    dropFile(e.file_path)
-    if (e.file_path === (await read($, explorer)).edit?.path) await checkDisk($)
-    $.ui.invalidate('ui.render')
+    await afterFileTool($, e.file_path)
 
     return ran
   })
 
   on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
     const ran = await next(e)
-    dropFile(e.notebook_path)
-    if (e.notebook_path === (await read($, explorer)).edit?.path) await checkDisk($)
-    $.ui.invalidate('ui.render')
+    await afterFileTool($, e.notebook_path)
 
     return ran
   })
@@ -2347,9 +2335,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       const path = element.slice(4)
       const state = await read($, explorer)
       const root = await rootOf($, state)
-      const rows = flatten(listings, new Set(state.expanded), root, {
-        mode: state.mode,
-      })
+      const rows = treeRowsOf(state, root)
       const win = windowOf(
         rows,
         rows.findIndex(row => row.path === path),
@@ -2396,9 +2382,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       }
     } else if (Math.abs(e.by) === 1) {
       const root = await rootOf($, state)
-      const rows = flatten(listings, new Set(state.expanded), root, {
-        mode: state.mode,
-      })
+      const rows = treeRowsOf(state, root)
       const at = rows.findIndex(row => row.path === (state.cursor ?? state.selected))
       const target = rows[clamp(at < 0 ? 0 : at + e.by, rows.length - 1)]
       if (target !== undefined && target.path !== state.cursor) {
@@ -2872,7 +2856,7 @@ export const register = (on: On, options?: PluginOptions): void => {
 
       return out
     }
-    // A rendered engine's `v`: its source through the code preview, and back.
+    // A rendered engine's view chip: its source through the code preview, and back.
     // Not over metadata (too big, binary): there is nothing to flip; the
     // source view always keeps it, so there is a way back.
     const viewEngine = current?.kind === 'file' && edit === undefined && !multi ? engineOf(current.name, customEngines) : 'code'
@@ -2906,17 +2890,11 @@ export const register = (on: On, options?: PluginOptions): void => {
       )
     const bar = (cells: string[]) => (
       <Box flexDirection="column" width={1} flexShrink={0}>
-        {cells.map((cell, i) =>
-          cell === '┃' ? (
-            <Text key={'bar:' + i} color={t.accent}>
-              {cell}
-            </Text>
-          ) : (
-            <Text key={'bar:' + i} color={t.muted}>
-              {cell}
-            </Text>
-          ),
-        )}
+        {cells.map((cell, i) => (
+          <Text key={'bar:' + i} color={cell === THUMB ? t.accent : t.muted}>
+            {cell}
+          </Text>
+        ))}
       </Box>
     )
 
@@ -2947,17 +2925,11 @@ export const register = (on: On, options?: PluginOptions): void => {
         <Box position="absolute" top={sectionRows - 1} left={1}>
           {Client === undefined ? (
             <Box flexDirection="row" height={1}>
-              {scrollbar(total, visible, offset, width, { thumb: H_THUMB, track: H_TRACK }).map((cell, i) =>
-                cell === H_THUMB ? (
-                  <Text key={'hbar:' + i} color={t.accent}>
-                    {cell}
-                  </Text>
-                ) : (
-                  <Text key={'hbar:' + i} color={t.muted}>
-                    {cell}
-                  </Text>
-                ),
-              )}
+              {scrollbar(total, visible, offset, width, { thumb: H_THUMB, track: H_TRACK }).map((cell, i) => (
+                <Text key={'hbar:' + i} color={cell === H_THUMB ? t.accent : t.muted}>
+                  {cell}
+                </Text>
+              ))}
             </Box>
           ) : (
             <Client
@@ -3020,9 +2992,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     const btn = (
       key: string,
       label: string,
-      variant: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger',
+      variant: 'primary' | 'secondary' | 'ghost' | 'danger',
       onPress: () => void,
-    ) => Btn(elements, t, { key, label, variant, size: 'sm', surface, onPress: asleep(onPress) })
+    ) => Btn(elements, t, { key, label, variant, surface, onPress: asleep(onPress) })
 
     // The Settings sheet, drawn last over the pane below the title row (in the
     // split pane over both halves).
@@ -3033,7 +3005,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             cols: e.props.bodyColumns,
             rows: fullRows,
             settings: settingsNow,
-            keymap: settingsNow.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains'),
+            keymap: keymapNameOf(pluginOptions, settingsNow),
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
             onChange: patch => void changeSettings($, patch),
@@ -3063,7 +3035,6 @@ export const register = (on: On, options?: PluginOptions): void => {
             </Box>
             <Box flexShrink={0}>
               {Tabs(elements, t, {
-                style: 'pill',
                 gap: 2,
                 surface,
                 tabs: [
@@ -3108,7 +3079,7 @@ export const register = (on: On, options?: PluginOptions): void => {
                 btn(
                   'new',
                   'New',
-                  'outline',
+                  'ghost',
                   () =>
                     void openNaming(
                       $,
@@ -3152,7 +3123,7 @@ export const register = (on: On, options?: PluginOptions): void => {
               t.warning,
               '⚠',
               (edit.conflict === 'disk' ? 'Changed on disk since loaded: ' : 'Changed on disk by Claude: ') +
-                edit.path.slice(edit.path.lastIndexOf('/') + 1),
+                nameOf(edit.path),
               [
                 btn('ask:overwrite', 'Overwrite', 'danger', () => sendCommand($, 'overwrite')),
                 btn('ask:reload', 'Reload', 'primary', () => void reloadEdit($)),
@@ -3160,7 +3131,7 @@ export const register = (on: On, options?: PluginOptions): void => {
               ],
             )
           : ask === 'unsaved' && edit !== undefined
-            ? askLine(t.warning, '⚠', 'Unsaved changes in ' + edit.path.slice(edit.path.lastIndexOf('/') + 1), [
+            ? askLine(t.warning, '⚠', 'Unsaved changes in ' + nameOf(edit.path), [
                 btn('ask:save', 'Save', 'primary', () => sendCommand($, 'save')),
                 btn('ask:discard', 'Discard', 'danger', () => void discard($)),
                 btn(

@@ -1,6 +1,5 @@
 // Design tokens, shadcn/ui-like: neutral surfaces, one accent.
 export type Theme = {
-  name: string
   bg: string // the background the colors are worked out against
   canvas: string | undefined // the background painted; undefined leaves the terminal's own
   surface: string // cards, inputs

@@ -5,7 +5,7 @@
  *
  * The ⚙ sits at the right end of the panel's title row (body row 0), under the
  * pane's close ✕: the ✕ row is the engine's frame, and a Box placed above the
- * body (`top={-1}`) is not drawn (stage 4.1, notes.md).
+ * body (`top={-1}`) is not drawn.
  *
  * The sheet is an overlay drawn LAST in the panel's unbordered root column:
  * a dimmed backdrop from row 1 (the title row and its ⚙ stay pressable) and a
@@ -28,7 +28,6 @@ export function SettingsButton(el: ElementTable, t: Theme, p: { surface?: Render
     key: SETTINGS_BUTTON,
     label: '⚙',
     variant: p.isOpen ? 'primary' : 'ghost',
-    size: 'sm',
     surface: p.surface,
     onPress: p.onPress,
   })
@@ -85,7 +84,7 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
     </Box>
   )
   const radio = (key: string, value: string, options: readonly (readonly [string, string])[], onChange: (v: string) => void) =>
-    RadioGroup(el, t, { key, row: true, value, surface, options: options.map(([v, label]) => ({ value: v, label })), onChange })
+    RadioGroup(el, t, { key, value, surface, options: options.map(([v, label]) => ({ value: v, label })), onChange })
 
   const limit = s.gitLimit ?? DEFAULTS.gitLimit
   // The overrides field: a native Input where the surface has one (not mobile).
@@ -173,7 +172,7 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
             }),
           )}
           {line('settings:l:reset', 'Sections', [
-            Btn(el, t, { key: 'settings:reset', label: 'Reset Layout', variant: 'danger', size: 'sm', surface, onPress: p.onResetLayout }),
+            Btn(el, t, { key: 'settings:reset', label: 'Reset Layout', variant: 'danger', surface, onPress: p.onResetLayout }),
             <Text key="settings:reset:hint" color={t.muted}>
               sizes back to defaults, now
             </Text>,

@@ -2,10 +2,11 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register, RenderElement } from 'claude-code'
 
 import type { GitState, SettingsState, SettingsUi } from '../../types'
+import { toggleMark } from '../explorer-panel/marks'
 import { window as windowOf } from '../explorer-panel/tree'
 import { sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
-import { H_THUMB, H_TRACK, scrollbar } from '../shared/scrollbar'
-import { DEFAULTS, SETTINGS_KEY, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
+import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from '../shared/scrollbar'
+import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyScheme, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
@@ -75,7 +76,7 @@ const settingsUi = atom<'ide-panes', 'settingsUi'>(
 )
 const PANE = GIT_PANE
 
-// Where Git is drawn: its own pane (`tabs`) or the split pane's bottom half,
+// Where Git is drawn: its own pane or the split pane's bottom half,
 // its keys prefixed `git/`. Set by each drawing.
 let host: typeof PANE | typeof SPLIT_PANE = PANE
 
@@ -90,7 +91,8 @@ const MIN_ROWS = 4
 const WIDE = 140
 // Default split fractions: Branches' width (`sideWide` from WIDE columns, else
 // `sideNarrow`), Info's share of the Overview's right column, Files' width in
-// Change Log. Each is applied in one place in the render hook.
+// Change Log, Info's share under Graph. Each is applied in one place in the
+// render hook.
 const SPLIT = { sideWide: 0.2, sideNarrow: 0.3, info: 0.4, files: 0.3, graph: 0.35 } as const
 
 type Tab = 'overview' | 'graph' | 'changelog'
@@ -112,7 +114,7 @@ const git = atom<'ide-panes', 'git'>(
 )
 
 // The git state as drawn: the Settings defaults where it has none (the tab,
-// the change view, `limit` until paged).
+// `limit` until paged).
 const gitNow = async ($: EngineInterface) => withGitDefaults(await read($, git), await read($, settings))
 
 // register's options (userConfig): the keymap preset the sheet shows while
@@ -131,7 +133,7 @@ const toggleSettings = async ($: EngineInterface): Promise<void> => {
   await update($, settingsUi, (u): SettingsUi => (u.open === undefined ? { open: PANE, before: now } : { ...u, open: PANE }))
   // The sheet takes the keyboard, its ring on the editor keymap in effect
   // (Enter there changes nothing; Tab walks on to the keys field).
-  sheetFocus($, 'settings:keymap:' + (now.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains')))
+  sheetFocus($, 'settings:keymap:' + keymapNameOf(pluginOptions, now))
 }
 
 // As the explorer's focusOn: a press's own drawing is not there yet, so the
@@ -222,12 +224,14 @@ const settingsCancel = async ($: EngineInterface): Promise<void> => {
   await update($, settingsUi, () => ({}))
 }
 
-// Git output is cached here, not in $.state; `refresh` and Bash tool calls
-// clear it.
+// Git output is cached here, not in $.state; Bash, fetch and pull clear it;
+// Write/Edit/NotebookEdit drop the status, show and change entries (`touched`).
 let repoRoot: string | null | undefined
 let branchCache: Branch[] | undefined
 let statusCache: Change[] | undefined
 const graphCache = new Map<string, Commit[]>()
+// graphCache's key: the ref and the page size it was read with.
+const graphKey = (ref: string, limit: number): string => ref + '\0' + limit
 const showCache = new Map<string, { head: string[]; diff: string }>()
 // A commit's changed files and whole patch, for the diff view. Cleared by
 // `clear()` only: commits do not change on Write/Edit.
@@ -241,8 +245,6 @@ const containsCache = new Map<string, Contains>()
 // Transient, so module variables, not `$.state`.
 let hovered: string | undefined
 let commitWindow: { element: string; shas: string[] } = { element: '', shas: [] }
-// How long the pointer rests on a dot or hash before its card shows.
-const HOVER_MS = 600
 // Branch names a card lists before `+N more`: half per group, all of it
 // when the other group is empty.
 const CARD_NAMES = 8
@@ -311,9 +313,6 @@ const loadLayout = async ($: EngineInterface): Promise<void> => {
   storedLayout = layoutOf(await $.store.get(LAYOUT_KEY), ['side', 'info', 'files', 'graph']) as GitState['split']
   layoutLoaded = true
 }
-
-const clamp = (value: number, max: number): number =>
-  Math.min(Math.max(0, value), Math.max(0, max))
 
 const clear = (): void => {
   repoRoot = undefined
@@ -396,7 +395,7 @@ const graphOf = async (
   cwd: string,
   state: GitState & { limit: number },
 ): Promise<Commit[]> => {
-  const key = state.ref + '\0' + state.limit
+  const key = graphKey(state.ref, state.limit)
   let lines = graphCache.get(key)
   if (lines === undefined) {
     const before = threw
@@ -510,7 +509,6 @@ const changeDetailsOf = async (
 const rowsOf = (state: GitState): ChangeRow[] =>
   changeRows(
     state.diff === undefined ? (statusCache ?? []) : (diffCache.get(state.diff)?.files ?? []),
-    'tree',
     new Set(state.changeCollapsed ?? []),
   )
 
@@ -576,16 +574,17 @@ const selectRef = ($: EngineInterface, ref: string) =>
 
 // Opens or closes a Branches folder or category (`l:`, `r:origin`, ...).
 const toggleFolder = ($: EngineInterface, key: string) =>
-  update($, git, s => {
-    const shut = s.collapsed ?? []
-
-    return {
-      ...s,
-      collapsed: shut.includes(key) ? shut.filter(k => k !== key) : [...shut, key],
-    }
-  })
+  update($, git, s => ({ ...s, collapsed: toggleMark(s.collapsed ?? [], key) }))
 
 const keyOf = (commit: Commit): string => 'commit:' + commit.sha
+
+// `sha` selected: Info keeps its scroll for the same commit, else starts over.
+const selectCommit = (s: GitState, sha: string): GitState => ({
+  ...s,
+  selected: sha,
+  infoOffset: s.selected === sha ? s.infoOffset : 0,
+  infoLeft: s.selected === sha ? s.infoLeft : 0,
+})
 
 export const register = (on: On, options?: PluginOptions): void => {
   pluginOptions = options
@@ -625,7 +624,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     if (element !== undefined && element.startsWith('commit:')) {
       const sha = element.slice('commit:'.length)
       const state = await gitNow($)
-      const lines = graphCache.get(state.ref + '\0' + state.limit) ?? []
+      const lines = graphCache.get(graphKey(state.ref, state.limit)) ?? []
       const win = windowOf(
         lines,
         lines.findIndex(commit => commit.sha === sha),
@@ -633,13 +632,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         state.offset,
       )
       if (state.selected !== sha || state.offset !== win.offset) {
-        await update($, git, s => ({
-          ...s,
-          selected: sha,
-          offset: win.offset,
-          infoOffset: s.selected === sha ? s.infoOffset : 0,
-          infoLeft: s.selected === sha ? s.infoLeft : 0,
-        }))
+        await update($, git, s => ({ ...selectCommit(s, sha), offset: win.offset }))
       }
     }
 
@@ -752,7 +745,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         await focusGit($, (isDiff ? 'dfile:' : 'change:') + path)
       }
     } else if (Math.abs(e.by) === 1) {
-      const lines = graphCache.get(state.ref + '\0' + state.limit) ?? []
+      const lines = graphCache.get(graphKey(state.ref, state.limit)) ?? []
       const at = lines.findIndex(commit => commit.sha === state.selected)
       const sha = lines[clamp(at < 0 ? 0 : at + e.by, lines.length - 1)]?.sha
       if (sha !== undefined && sha !== state.selected) {
@@ -810,12 +803,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         // on its subject, and the keyboard moves to the subject Button.
         const sha = shaAt(message.press)
         if (sha === undefined) return {}
-        await update($, git, s => ({
-          ...s,
-          selected: sha,
-          infoOffset: s.selected === sha ? s.infoOffset : 0,
-          infoLeft: s.selected === sha ? s.infoLeft : 0,
-        }))
+        await update($, git, s => selectCommit(s, sha))
         $.ui.invalidate('ui.render')
         await focusGit($, 'commit:' + sha)
 
@@ -946,7 +934,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             cols: e.props.bodyColumns,
             rows: bodyRows,
             settings: settingsNow,
-            keymap: settingsNow.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains'),
+            keymap: keymapNameOf(pluginOptions, settingsNow),
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
             onChange: patch => void changeSettings($, patch),
@@ -997,7 +985,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // footer row; the sections share the rest.
     const headerRows = 1
     const area = Math.max(4, bodyRows - headerRows - 1)
-    // The three sizes the splitters will drive, each computed here from its
+    // The four sizes the splitters drive, each computed here from its
     // default fraction. Fixed cell widths (not percentages) so labels,
     // hit-testing and the drawn columns agree.
     // Branches' width (Overview).
@@ -1021,9 +1009,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     const graphInner = Math.max(3, graphTop - 2)
     const infoInner = Math.max(3, infoRows - 2)
     const fullInner = Math.max(3, area - 2)
-    graphRows = Math.max(2, (isGraph ? graphInner : topInner) - 1)
     tabRows.graph = Math.max(2, graphInner - 1)
     tabRows.overview = Math.max(2, topInner - 1)
+    graphRows = isGraph ? tabRows.graph : tabRows.overview
     const graphWidth = (isGraph ? columns : rightCols) - 5
     // the scrollbar takes one more column in each section
     const sideWidth = sideCols - 3
@@ -1089,11 +1077,12 @@ export const register = (on: On, options?: PluginOptions): void => {
     // Info's `local` / `remote` lines: every branch containing the selected
     // commit, fetched once per sha.
     const contains = isFiles || selected === undefined ? undefined : await containsOf($, cwd, selected.sha)
+    const head0 = branches.find(branch => branch.isHead)
     // Info: every head line, windowed by `infoOffset`.
     const infoAll =
       details === undefined || isFiles || selected === undefined
         ? []
-        : infoHead(details.head, selected, contains, branches.find(branch => branch.isHead)?.name)
+        : infoHead(details.head, selected, contains, head0?.name)
     const infoMax = Math.max(0, infoAll.length - infoInner)
     const infoOffset = clamp(state.infoOffset ?? 0, infoMax)
     const infoShown = infoAll.slice(infoOffset, infoOffset + infoInner)
@@ -1119,7 +1108,6 @@ export const register = (on: On, options?: PluginOptions): void => {
         : 0
     const detailLeftMax = Math.max(0, detailWide - detailCols)
     const detailLeft = clamp(state.detailLeft ?? 0, detailLeftMax)
-    const head0 = branches.find(branch => branch.isHead)
     if (head0 === undefined && unborn === undefined) {
       const before = threw
       const name = (await run($, root, headNameArgv()))?.trim()
@@ -1146,17 +1134,11 @@ export const register = (on: On, options?: PluginOptions): void => {
     view.detailRows = diffRows
     const bar = (cells: string[]) => (
       <Box flexDirection="column" width={1} flexShrink={0}>
-        {cells.map((cell, i) =>
-          cell === '┃' ? (
-            <Text key={'bar:' + i} color={t.accent}>
-              {cell}
-            </Text>
-          ) : (
-            <Text key={'bar:' + i} color={t.muted}>
-              {cell}
-            </Text>
-          ),
-        )}
+        {cells.map((cell, i) => (
+          <Text key={'bar:' + i} color={cell === THUMB ? t.accent : t.muted}>
+            {cell}
+          </Text>
+        ))}
       </Box>
     )
 
@@ -1202,17 +1184,11 @@ export const register = (on: On, options?: PluginOptions): void => {
       total <= visible || width <= 0 ? null : (
         <Box position="absolute" top={top} left={1} flexDirection="row">
           {Client === undefined ? (
-            scrollbar(total, visible, offset, width, { thumb: H_THUMB, track: H_TRACK }).map((cell, i) =>
-              cell === H_THUMB ? (
-                <Text key={'hbar:' + i} color={t.accent}>
-                  {cell}
-                </Text>
-              ) : (
-                <Text key={'hbar:' + i} color={t.muted}>
-                  {cell}
-                </Text>
-              ),
-            )
+            scrollbar(total, visible, offset, width, { thumb: H_THUMB, track: H_TRACK }).map((cell, i) => (
+              <Text key={'hbar:' + i} color={cell === H_THUMB ? t.accent : t.muted}>
+                {cell}
+              </Text>
+            ))
           ) : (
             <Client
               key={key}
@@ -1225,12 +1201,9 @@ export const register = (on: On, options?: PluginOptions): void => {
         </Box>
       )
 
-    const select = (ref: string) => selectRef($, ref)
-    const toggle = (key: string) => toggleFolder($, key)
-
     // The offset that keeps the selected commit in view; 0 with no selection.
     const offsetFor = (s: GitState, to: Tab): number => {
-      const lines = graphCache.get(s.ref + '\0' + state.limit) ?? []
+      const lines = graphCache.get(graphKey(s.ref, state.limit)) ?? []
       const at = lines.findIndex(commit => commit.sha === s.selected)
 
       return at < 0 ? 0 : windowOf(lines, at, to === 'graph' ? tabRows.graph : tabRows.overview, 0).offset
@@ -1254,10 +1227,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // closes it, to the tab it was opened from (the tab is not changed).
     const openDiff = (sha: string) =>
       update($, git, s => ({
-        ...s,
-        selected: sha,
-        infoOffset: s.selected === sha ? s.infoOffset : 0,
-        infoLeft: s.selected === sha ? s.infoLeft : 0,
+        ...selectCommit(s, sha),
         diff: sha,
         diffFile: undefined,
         diffFileOffset: 0,
@@ -1275,14 +1245,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       }))
 
     const toggleChange = (key: string) =>
-      update($, git, s => {
-        const shut = s.changeCollapsed ?? []
-
-        return {
-          ...s,
-          changeCollapsed: shut.includes(key) ? shut.filter(k => k !== key) : [...shut, key],
-        }
-      })
+      update($, git, s => ({ ...s, changeCollapsed: toggleMark(s.changeCollapsed ?? [], key) }))
 
     // The section's name sits on its top border. A bordered Box clips its
     // children, so the title is an absolute Box after it, at top={0}, in an
@@ -1334,7 +1297,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         <Box flexDirection="column" flexGrow={1}>
         <Box flexDirection="row" backgroundColor={state.ref === 'all' ? sel : undefined}>
           <Text color={t.accent}>{state.ref === 'all' ? '▌' : ' '}</Text>
-          <Button key="all" plain label="All" onPress={asleep(() => select('all'))} />
+          <Button key="all" plain label="All" onPress={asleep(() => selectRef($, 'all'))} />
         </Box>
         {branchRows.map((row: BranchRow) => {
           // Rails per depth as in the explorer; a folder opens or closes.
@@ -1374,9 +1337,9 @@ export const register = (on: On, options?: PluginOptions): void => {
                   height={1}
                 />
                 {row.kind === 'branch' ? (
-                  <Button key={'branch:' + row.branch.name} plain label=" " onPress={() => select(row.branch.name)} />
+                  <Button key={'branch:' + row.branch.name} plain label=" " onPress={() => selectRef($, row.branch.name)} />
                 ) : (
-                  <Button key={'bdir:' + row.key} plain label=" " onPress={() => toggle(row.key)} />
+                  <Button key={'bdir:' + row.key} plain label=" " onPress={() => toggleFolder($, row.key)} />
                 )}
               </Box>
             )
@@ -1391,7 +1354,7 @@ export const register = (on: On, options?: PluginOptions): void => {
               <Box key={'bline:' + row.key} flexDirection="row">
                 <Text> </Text>
                 <Text bold color={t.accent}>{row.isOpen ? '▾ ' : '▸ '}</Text>
-                <Button key={'bdir:' + row.key} plain label={label} onPress={() => toggle(row.key)} />
+                <Button key={'bdir:' + row.key} plain label={label} onPress={() => toggleFolder($, row.key)} />
               </Box>
             )
           }
@@ -1405,7 +1368,7 @@ export const register = (on: On, options?: PluginOptions): void => {
                   plain
                   dimColor={row.key.startsWith('r:')}
                   label={fit((row.isOpen ? '▾ ' : '▸ ') + row.name + '/', room)}
-                  onPress={() => toggle(row.key)}
+                  onPress={() => toggleFolder($, row.key)}
                 />
               </Box>
             )
@@ -1431,7 +1394,7 @@ export const register = (on: On, options?: PluginOptions): void => {
                     (trackLabel(branch.track) === '' ? '' : ' ' + trackLabel(branch.track)),
                   room,
                 )}
-                onPress={() => select(branch.name)}
+                onPress={() => selectRef($, branch.name)}
               />
             </Box>
           )
@@ -1472,12 +1435,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       const { commit } = row
       const isSelected = commit.sha === selected?.sha
       const pick = () =>
-        update($, git, s => ({
-          ...s,
-          selected: commit.sha,
-          infoOffset: s.selected === commit.sha ? s.infoOffset : 0,
-          infoLeft: s.selected === commit.sha ? s.infoLeft : 0,
-        }))
+        update($, git, s => selectCommit(s, commit.sha))
       // Commits: a dot and a space instead of the lanes (`graphColumns` adds
       // the lanes' trailing space itself).
       const cols = graphColumns(width, wide ? laneCols : DOT_COLS - 1, wide)
@@ -1599,7 +1557,6 @@ export const register = (on: On, options?: PluginOptions): void => {
                     short: row.commit.short.padEnd(shortCols),
                   })),
                   background: sel,
-                  delayMs: HOVER_MS,
                 }}
                 width={(wide ? 0 : DOT_COLS) + 1 + shortCols + 1}
                 height={win.rows.length}
@@ -1731,36 +1688,26 @@ export const register = (on: On, options?: PluginOptions): void => {
     // `<keyPrefix><path>` and their scrollbar `barKey`: Change Log feeds it the
     // working tree (`change:`, `sb:changes`), the diff view a commit's files
     // (`dfile:`, `sb:dfiles`).
+    // Files | Diff Preview (Change Log, the diff view): the Files rows, chosen
+    // file and its details are the ones worked out above.
     const filesAndPreview = (p: {
       title: string
-      keyPrefix: string
       barKey: string
-      rows: ChangeRow[]
-      fileOffset: number
-      selected: string | undefined
-      details: { head: string[]; diff: string } | undefined
-      previewOffset: number
-      focus: string | undefined
       emptyText: string
       noneText: string
       onPick: (path: string) => void
-      onToggle: (key: string) => void
     }) => {
-      const fwin = windowOf(p.rows, -1, changeRoom, p.fileOffset)
       const filesWidth = filesCols - 5
-      const pHead = p.details === undefined ? [] : p.details.head.slice(0, headRows)
-      const pRows = Math.max(1, fullInner - pHead.length)
-      const pTotal = p.details === undefined ? 0 : diffLines(p.details.diff).length
-      const pOffset = clamp(p.previewOffset, pTotal - pRows)
-      const pDiff = p.details === undefined ? '' : sliceDiff(p.details.diff, pOffset, pRows)
+      const pOffset = clamp(state.detailOffset ?? 0, diffTotal - diffRows)
+      const pDiff = details === undefined ? '' : sliceDiff(details.diff, pOffset, diffRows)
 
       return (
         <Box flexDirection="row">
           <Box flexDirection="column" width={filesCols} flexShrink={0} height={area}>
           <Box {...border} flexDirection="row" height="100%">
             <Box flexDirection="column" flexGrow={1}>
-              {p.rows.length === 0 && <Text color={t.muted}>{p.emptyText}</Text>}
-              {fwin.rows.map(row => {
+              {frows.length === 0 && <Text color={t.muted}>{p.emptyText}</Text>}
+              {cwin.rows.map(row => {
                 const rails = '│ '.repeat(row.depth)
                 if (row.kind === 'folder') {
                   return (
@@ -1771,13 +1718,13 @@ export const register = (on: On, options?: PluginOptions): void => {
                         key={'cdir:' + row.key}
                         plain
                         label={fit((row.isOpen ? '▾ ' : '▸ ') + row.name + '/', filesWidth - 1 - rails.length)}
-                        onPress={() => p.onToggle(row.key)}
+                        onPress={() => toggleChange(row.key)}
                       />
                     </Box>
                   )
                 }
                 const change = row.item
-                const isSelected = change.path === p.selected
+                const isSelected = change.path === chosen?.path
                 const glyph = changeGlyph(change)
                 const label = fitStart(row.name, Math.max(4, filesWidth - 3 - rails.length))
                 const slash = label.lastIndexOf('/')
@@ -1796,9 +1743,9 @@ export const register = (on: On, options?: PluginOptions): void => {
                     <Text> </Text>
                     {slash >= 0 && <Text color={t.muted}>{label.slice(0, slash + 1)}</Text>}
                     <Button
-                      key={p.keyPrefix + change.path}
+                      key={fileKey + change.path}
                       plain
-                      autoFocus={p.keyPrefix + change.path === p.focus ? true : undefined}
+                      autoFocus={fileKey + change.path === changeFocus ? true : undefined}
                       label={label.slice(slash + 1)}
                       onPress={() => p.onPick(change.path)}
                     />
@@ -1806,7 +1753,7 @@ export const register = (on: On, options?: PluginOptions): void => {
                 )
               })}
             </Box>
-            {dragBar(p.barKey, p.rows.length, changeRoom, fwin.offset)}
+            {dragBar(p.barKey, frows.length, changeRoom, cwin.offset)}
           </Box>
             {/* The name chip: name + 2 cells from column 1, short of the far corner. */}
             {titled('title:files', fit(p.title, Math.max(5, filesCols - 5)))}
@@ -1814,22 +1761,22 @@ export const register = (on: On, options?: PluginOptions): void => {
           <Box flexDirection="column" width={previewCols} flexShrink={0} height={area}>
           <Box {...border} flexDirection="row" height="100%">
             <Box flexDirection="column" flexGrow={1}>
-            {p.details === undefined && <Text color={t.muted}>{p.noneText}</Text>}
-            {pHead.map((text, i) => (
+            {details === undefined && <Text color={t.muted}>{p.noneText}</Text>}
+            {previewHead.map((text, i) => (
               <Text key={'head:' + i} bold={i === 0} color={i === 0 ? t.accent : t.text} wrap="truncate-end">
                 {sliceCols(text, detailLeft) || ' '}
               </Text>
             ))}
             {pDiff !== '' && <Code source={sliceDiffCols(pDiff, detailLeft)} format="diff" wrap="truncate-end" />}
-            {p.details !== undefined && pDiff === '' && (
+            {details !== undefined && pDiff === '' && (
               <Text color={t.muted}>
-                {/^(Binary files|GIT binary patch)/m.test(p.details.diff)
+                {/^(Binary files|GIT binary patch)/m.test(details.diff)
                   ? 'Binary file.'
                   : 'No textual changes.'}
               </Text>
             )}
             </Box>
-            {dragBar('sb:details', pTotal, pRows, pOffset, pHead.length)}
+            {dragBar('sb:details', diffTotal, diffRows, pOffset, previewHead.length)}
           </Box>
           {titled('title:diff', 'Diff Preview')}
           {hbar('hb:details', detailWide, detailCols, detailLeft, area - 1, detailCols)}
@@ -1856,7 +1803,6 @@ export const register = (on: On, options?: PluginOptions): void => {
             </Box>
             <Box flexShrink={0}>
               {Tabs(elements, t, {
-                style: 'pill',
                 gap: 2,
                 surface,
                 tabs: (['overview', 'graph', 'changelog'] as const).map(id => ({ id, label: TAB_LABEL[id] })),
@@ -1869,15 +1815,14 @@ export const register = (on: On, options?: PluginOptions): void => {
             </Box>
             {isDiff && (
               <Box flexShrink={0}>
-                {Btn(elements, t, { key: 'back', label: 'Back', variant: 'secondary', size: 'sm', surface, onPress: asleep(closeDiff) })}
+                {Btn(elements, t, { key: 'back', label: 'Back', variant: 'secondary', surface, onPress: asleep(closeDiff) })}
               </Box>
             )}
             <Box flexShrink={0}>
               {Btn(elements, t, {
                 key: 'fetch',
                 label: busy === 'fetch' ? 'Fetching…' : 'Fetch',
-                variant: 'outline',
-                size: 'sm',
+                variant: 'ghost',
                 surface,
                 onPress: asleep(() => remote($, 'fetch')),
               })}
@@ -1887,7 +1832,6 @@ export const register = (on: On, options?: PluginOptions): void => {
                 key: 'pull',
                 label: busy === 'pull' ? 'Pulling…' : 'Pull',
                 variant: 'primary',
-                size: 'sm',
                 surface,
                 onPress: asleep(() => remote($, 'pull')),
               })}
@@ -1898,14 +1842,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         {isDiff ? (
           filesAndPreview({
             title: 'Files · ' + (opened === undefined ? (state.diff ?? '').slice(0, 7) : opened.short + ' ' + opened.subject),
-            keyPrefix: 'dfile:',
             barKey: 'sb:dfiles',
-            rows: frows,
-            fileOffset,
-            selected: chosen?.path,
-            details,
-            previewOffset: state.detailOffset ?? 0,
-            focus: changeFocus,
             emptyText: 'No files changed',
             noneText: 'Select a file.',
             onPick: path =>
@@ -1915,19 +1852,11 @@ export const register = (on: On, options?: PluginOptions): void => {
                 detailOffset: s.diffFile === path ? s.detailOffset : 0,
                 detailLeft: s.diffFile === path ? s.detailLeft : 0,
               })),
-            onToggle: toggleChange,
           })
         ) : isChanges ? (
           filesAndPreview({
             title: 'Files',
-            keyPrefix: 'change:',
             barKey: 'sb:changes',
-            rows: frows,
-            fileOffset,
-            selected: chosen?.path,
-            details,
-            previewOffset: state.detailOffset ?? 0,
-            focus: changeFocus,
             emptyText: 'Working tree clean',
             noneText: 'Select a change.',
             onPick: path =>
@@ -1937,7 +1866,6 @@ export const register = (on: On, options?: PluginOptions): void => {
                 detailOffset: s.change === path ? s.detailOffset : 0,
                 detailLeft: s.change === path ? s.detailLeft : 0,
               })),
-            onToggle: toggleChange,
           })
         ) : isGraph ? (
           <Box flexDirection="column">

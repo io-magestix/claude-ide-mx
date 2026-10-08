@@ -13,6 +13,7 @@ import {
   chunks,
   commentOf,
   cursorAt,
+  endOf,
   extendTo,
   fromText,
   insert,
@@ -20,11 +21,12 @@ import {
   keyOp,
   paste,
   setCursor,
+  startOf,
   toText,
 } from './editor'
 import type { Action, Buffer, Pos } from './editor'
 import { TRANSFER_CHUNK } from './edit'
-import type { EditorProps } from './edit'
+import type { EditorProps, HView } from './edit'
 
 // The Edit section's surface module: holds the buffer, maps keys and the
 // pointer to `editor.ts` ops and draws the visible rows. The hooks module
@@ -53,7 +55,7 @@ type Cells = {
   // a tab one cell, as drawn below): the horizontal bar's total.
   widest: number
   // The `hview` last queued, so an unchanged view is not sent again.
-  hview?: { left: number; widest: number; width: number }
+  hview?: HView
   drag?: number // the cursor index a held pointer extends
   outbox: Outgoing[]
   tick: number
@@ -80,7 +82,7 @@ const columnsOf = (surface: ClientSurface<State>, cells: Cells): number =>
 const gutterOf = (buffer: Buffer): number => String(buffer.lines.length).length + 1
 
 // Text columns: the region less the line-number gutter.
-const widthOf = (surface: ClientSurface<State>, cells: Cells, buffer: Buffer): number =>
+const textWidthOf = (surface: ClientSurface<State>, cells: Cells, buffer: Buffer): number =>
   Math.max(1, columnsOf(surface, cells) - gutterOf(buffer))
 
 const widestOf = (lines: readonly string[], from = 0, to = lines.length): number => {
@@ -258,7 +260,7 @@ const follow = (surface: ClientSurface<State>, cells: Cells): void => {
   if (buffer === undefined) return
   const head = buffer.cursors[buffer.cursors.length - 1]!.head
   const rows = rowsOf(surface, cells)
-  const width = widthOf(surface, cells, buffer)
+  const width = textWidthOf(surface, cells, buffer)
   if (head.line < cells.top) cells.top = head.line
   else if (head.line >= cells.top + rows) cells.top = head.line - rows + 1
   if (head.col < cells.left) cells.left = head.col
@@ -283,7 +285,7 @@ const act = (surface: ClientSurface<State>, cells: Cells, action: Action): void 
   const buffer = cells.buffer
   if (buffer === undefined) return
   const result = applyAction(buffer, action, {
-    comment: commentOf(cells.props.language === '' ? undefined : cells.props.language),
+    comment: commentOf(cells.props.language),
     rows: rowsOf(surface, cells),
   })
   apply(surface, cells, result.buffer)
@@ -303,7 +305,7 @@ const run = (surface: ClientSurface<State>, cells: Cells, command: string, by: n
   } else if (command === 'left' && cells.buffer !== undefined) {
     // The horizontal bar dragged: the view moves, the cursor stays. The caret
     // cell past a line's end counts (End puts the view there), as in the bar.
-    const max = Math.max(0, cells.widest + 1 - widthOf(surface, cells, cells.buffer))
+    const max = Math.max(0, cells.widest + 1 - textWidthOf(surface, cells, cells.buffer))
     cells.left = Math.min(Math.max(0, Math.round(by)), max)
   } else if ((ACTIONS as readonly string[]).includes(command)) {
     act(surface, cells, command as Action)
@@ -327,7 +329,7 @@ const key = (surface: ClientSurface<State>, cells: Cells, event: ClientKeyEvent)
   surface.setState({ cells })
 }
 
-const posAt = (surface: ClientSurface<State>, cells: Cells, x: number, y: number): Pos | undefined => {
+const posAt = (cells: Cells, x: number, y: number): Pos | undefined => {
   const buffer = cells.buffer
   if (buffer === undefined) return undefined
   const line = Math.min(Math.max(0, cells.top + y), buffer.lines.length - 1)
@@ -338,7 +340,7 @@ const posAt = (surface: ClientSurface<State>, cells: Cells, x: number, y: number
 
 const point = (surface: ClientSurface<State>, cells: Cells, event: ClientPointerEvent): void => {
   const buffer = cells.buffer
-  const pos = posAt(surface, cells, event.x, event.y)
+  const pos = posAt(cells, event.x, event.y)
   if (buffer === undefined || pos === undefined) return
   if (event.type === 'down' && event.button === 'left') {
     let next: Buffer
@@ -387,10 +389,8 @@ const marksOf = (buffer: Buffer, line: number): Map<number, 1 | 2> => {
   const marks = new Map<number, 1 | 2>()
   const length = buffer.lines[line]!.length
   for (const c of buffer.cursors) {
-    const [s, e] =
-      c.anchor.line < c.head.line || (c.anchor.line === c.head.line && c.anchor.col <= c.head.col)
-        ? [c.anchor, c.head]
-        : [c.head, c.anchor]
+    const s = startOf(c)
+    const e = endOf(c)
     if (line >= s.line && line <= e.line) {
       const from = line === s.line ? s.col : 0
       // A selection running past the line's end takes its newline cell.
@@ -449,7 +449,7 @@ const Editor: ClientModule<EditorProps, State> = (props, surface) => {
   }
   const rows = rowsOf(surface, cells)
   const gutter = gutterOf(buffer)
-  const width = widthOf(surface, cells, buffer)
+  const width = textWidthOf(surface, cells, buffer)
   // Every change to the view (an edit, a move, a resize) ends in a drawing:
   // the bar's numbers go out from here.
   syncView(surface, cells, width)
@@ -478,28 +478,18 @@ const Editor: ClientModule<EditorProps, State> = (props, surface) => {
 
         return (
           <Text key={'line:' + line} wrap="truncate-end">
-            {colors === undefined ? (
-              <Text dimColor>{String(line + 1).padStart(gutter - 1) + ' '}</Text>
-            ) : (
-              <Text color={colors.gutter}>{String(line + 1).padStart(gutter - 1) + ' '}</Text>
-            )}
+            <Text color={colors.gutter}>{String(line + 1).padStart(gutter - 1) + ' '}</Text>
             {runs.map((run, k) =>
               run.style === 2 ? (
-                colors === undefined ? (
-                  <Text key={'run:' + k} inverse>
-                    {run.text}
-                  </Text>
-                ) : (
-                  <Text key={'run:' + k} color={colors.caretText} backgroundColor={colors.caret}>
-                    {run.text}
-                  </Text>
-                )
+                <Text key={'run:' + k} color={colors.caretText} backgroundColor={colors.caret}>
+                  {run.text}
+                </Text>
               ) : run.style === 1 ? (
-                <Text key={'run:' + k} color={colors?.text} backgroundColor={colors?.selection ?? 'ansi256(24)'}>
+                <Text key={'run:' + k} color={colors.text} backgroundColor={colors.selection}>
                   {run.text}
                 </Text>
               ) : (
-                <Text key={'run:' + k} color={colors?.text}>{run.text}</Text>
+                <Text key={'run:' + k} color={colors.text}>{run.text}</Text>
               ),
             )}
           </Text>

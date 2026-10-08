@@ -132,9 +132,10 @@ export function fitCells(
   return { columns, rows }
 }
 
-// FNV-1a, 8 hex digits: names the cached PNG of one path + mtime.
-export function hashOf(text: string): string {
-  let h = 0x811c9dc5
+// FNV-1a, 8 hex digits: names the cached PNG of one path + mtime (and, with
+// a second seed, a draft: `hashPath`).
+export function hashOf(text: string, seed = 0x811c9dc5): string {
+  let h = seed
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
 
   return h.toString(16).padStart(8, '0')
@@ -183,7 +184,7 @@ export const isPictureFile = (name: string, custom?: Record<string, CustomEngine
 export const convertedPath = (dir: string, path: string, mtime: number): string =>
   `${dir}/ide-panes-preview-${hashOf(path + '\0' + mtime)}.png`
 
-// Engines whose Preview has a rendered and a source view (the `v` toggle).
+// Engines whose Preview has a rendered and a source view (the `preview:view` chip).
 export const hasSourceView = (engine: Engine): boolean => engine === 'svg' || engine === 'markdown'
 
 // The image info row: `W×H px · size`, the dimensions left out when unknown.

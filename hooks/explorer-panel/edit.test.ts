@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { DRAFT_DIR, accept, draftFile, editorColors, hashPath, mixHex, parseChunk, parseHView } from './edit'
+import { mixHex } from '../shared/color'
+import { DRAFT_DIR, accept, draftFile, editorColors, hashPath, parseChunk, parseHView } from './edit'
 import { themeFromClaudeCode } from '../shared/term-theme'
 import type { ChunkMsg } from './edit'
 
@@ -82,13 +83,6 @@ test('parseHView takes three non-negative integers, nothing else', () => {
   expect(parseHView({ left: 1.5, widest: 300, width: 58 })).toBeUndefined()
   expect(parseHView({ left: 1, widest: '300', width: 58 })).toBeUndefined()
   expect(parseHView({ left: 1, widest: 300 })).toBeUndefined()
-})
-
-test('mixHex: the ends, halfway, and a non-hex color left alone', () => {
-  expect(mixHex('#000000', '#ffffff', 0)).toBe('#000000')
-  expect(mixHex('#000000', '#ffffff', 1)).toBe('#ffffff')
-  expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080')
-  expect(mixHex('red', '#ffffff', 0.5)).toBe('red')
 })
 
 test('editorColors: theme text and muted gutter, inverted caret, a sunk accent selection', () => {

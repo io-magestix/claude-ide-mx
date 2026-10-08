@@ -8,6 +8,11 @@ import type { ClientPointerEvent, ClientSurface } from 'claude-code'
 // toward a double, and a release across the arrow edge is no click.
 export const DOUBLE_MS = 400
 
+// Whether a pointer at `x`, `y` is on a one-row Client `columns` wide (0: not
+// laid out yet, any column counts).
+export const isOnRow = (columns: number, x: number, y: number): boolean =>
+  y === 0 && x >= 0 && (columns <= 0 || x < columns)
+
 // What the gesture needs of the row: the part under a cell (`undefined` off
 // the row) and which part is the arrow.
 export type RowGestureOptions<H extends string> = {

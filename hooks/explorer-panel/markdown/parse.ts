@@ -34,6 +34,3 @@ export function parse(text: string): ParseResult {
 }
 
 export type * from './ast'
-export { normalizeLabel } from './ast'
-export { slugify } from './blocks'
-export { plainText } from './inlines'

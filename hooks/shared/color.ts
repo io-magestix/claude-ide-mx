@@ -55,3 +55,21 @@ export const ansi256Hex = (code: number): string => {
 
 // The session color as '#rrggbb' (an unknown name reads as the default).
 export const sessionHex = (name: string): string => ansi256Hex(CODES[name] ?? (CODES[''] as number))
+
+// `a` moved toward `b` by `amount` (0..1), both '#rrggbb'; `a` when either is not.
+export const mixHex = (a: string, b: string, amount: number): string => {
+  const ma = /^#([0-9a-f]{6})$/i.exec(a)
+  const mb = /^#([0-9a-f]{6})$/i.exec(b)
+  if (ma === null || mb === null) return a
+  const na = parseInt(ma[1] as string, 16)
+  const nb = parseInt(mb[1] as string, 16)
+  const k = Math.min(1, Math.max(0, amount))
+  const c = (shift: number) => {
+    const x = (na >> shift) & 255
+    const y = (nb >> shift) & 255
+
+    return Math.round(x + (y - x) * k).toString(16).padStart(2, '0')
+  }
+
+  return '#' + c(16) + c(8) + c(0)
+}

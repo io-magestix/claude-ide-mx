@@ -1,11 +1,10 @@
 // B2 layout: ParseResult → rows at one width (rows.ts), every row exactly one
-// terminal row, so a viewer scrolls by rows. Implements the "Drawn as" column of
-// plan-stage-1/features.md; inline wrapping lives in wrap.ts.
+// terminal row, so a viewer scrolls by rows. Inline wrapping lives in wrap.ts.
 
 import type { AlertKind, Align, Block, Inline, List, ParseResult, Table } from './ast'
 import type { Layout, MdRow, Role, Span, SpanStyle } from './rows'
-import { cols, cut, flatten, natural, type Pieces, spansWidth, wrap } from './wrap'
-import { expandTabs } from '../../shared/hscroll'
+import { colsOf, expandTabs } from '../../shared/hscroll'
+import { cut, flatten, natural, type Pieces, spansWidth, wrap } from './wrap'
 
 /** Narrowest layout width; smaller requests are laid out at this. */
 export const MIN_WIDTH = 8
@@ -107,7 +106,7 @@ function paragraph(nodes: readonly Inline[], w: number, ctx: Ctx): Out {
   const out = new Out()
   const img = soleImage(nodes)
   if (img) {
-    out.rows.push({ kind: 'image', prefix: [], src: img.src, alt: img.alt, title: img.title })
+    out.rows.push({ kind: 'image', prefix: [], src: img.src, alt: img.alt })
     return out
   }
   for (const r of inlineRows(nodes, w, bodyStyle(ctx))) out.text(r)
@@ -224,7 +223,7 @@ function layCode(text: string, lang: string, label: string, w: number, ctx: Ctx)
   }
   const lines = text.split('\n')
   lines.forEach((raw, line) => {
-    let rest = raw.includes('\t') ? expandTabs(raw) : raw
+    let rest = expandTabs(raw)
     if (!rest) {
       out.rows.push({ kind: 'code', prefix: [], text: '', lang, block, line })
       return
@@ -305,7 +304,7 @@ function layTable(t: Table, w: number): Out {
     for (const [ri, row] of [header, ...body].entries()) {
       const pieces: Pieces = []
       row.forEach((c, i) => {
-        if (i) pieces.push({ text: ' │ ', style: S_BORDER, nb: false })
+        if (i) pieces.push({ text: ' │ ', style: S_BORDER })
         for (const p of c) pieces.push(p ?? { text: ' ' })
       })
       for (const r of wrap(pieces, w)) out.text(r)
@@ -320,7 +319,7 @@ function layTable(t: Table, w: number): Out {
   const rule = (l: string, m: string, r: string): void =>
     out.text([{ text: l + ws.map((c) => '─'.repeat(c + 2 * pad)).join(m) + r, style: S_BORDER }])
   const bar: Span = { text: '│', style: S_BORDER }
-  const drawRow = (cells: Pieces[]): number => {
+  const drawRow = (cells: Pieces[]): void => {
     const wrapped = cells.map((c, i) => wrap(c, ws[i]!))
     const h = Math.max(1, ...wrapped.map((c) => c.length))
     for (let y = 0; y < h; y++) {
@@ -333,7 +332,6 @@ function layTable(t: Table, w: number): Out {
       })
       out.text(spans)
     }
-    return h
   }
   rule('┌', '┬', '┐')
   drawRow(header)
@@ -398,7 +396,7 @@ export function layout(result: ParseResult, width: number): Layout {
 /** Columns a row takes (prefix included). */
 export function rowWidth(r: MdRow): number {
   if (r.kind === 'text') return spansWidth(r.spans)
-  return spansWidth(r.prefix) + (r.kind === 'code' ? cols(r.text) : 0)
+  return spansWidth(r.prefix) + (r.kind === 'code' ? colsOf(r.text) : 0)
 }
 
 /** A row as plain text (spans flattened; images as `🖼 alt`), for tests and copy. */

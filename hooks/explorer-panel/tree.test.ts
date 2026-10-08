@@ -5,7 +5,8 @@ import {
   changeMarks,
   clip,
   deleteTarget,
-  filterFor,
+  dirsAbove,
+  filters,
   flatten,
   isBinary,
   languageOf,
@@ -70,17 +71,10 @@ test('flatten shows nothing under an expanded dir without a listing', () => {
   expect(rows[0]?.isExpanded).toBe(true)
 })
 
-test('flatten applies a custom filter', () => {
-  const rows = flatten(listings, new Set(), '/p', {
-    filter: entry => entry.kind === 'file',
-  })
-  expect(rows.map(row => row.name)).toEqual(['A.md', 'b.txt'])
-})
-
-test('filterFor returns a filter per mode', () => {
-  expect(filterFor('files')(dir('.git'), '/p', 'files', '/p')).toBe(false)
-  expect(filterFor('unity')(file('x'), '/p/Assets', 'unity', '/p')).toBe(true)
-  expect(filterFor('unity')(file('x'), '/p', 'unity', '/p')).toBe(false)
+test('filters: one per mode', () => {
+  expect(filters.files(dir('.git'), '/p', '/p')).toBe(false)
+  expect(filters.unity(file('x'), '/p/Assets', '/p')).toBe(true)
+  expect(filters.unity(file('x'), '/p', '/p')).toBe(false)
 })
 
 // Shaped like ../unity-playground.
@@ -307,4 +301,9 @@ test('changeMarks: a toplevel of / ends its walk', () => {
   const marks = changeMarks([{ path: 'etc/hosts', kind: 'modified' }], '/')
   expect(markOf('/etc/hosts', marks)).toBe('*')
   expect(markOf('/etc', marks)).toBe('*')
+})
+
+test('dirsAbove: the dirs between the root and a path, outermost first', () => {
+  expect(dirsAbove('/p/a/b/c.ts', '/p')).toEqual(['/p/a', '/p/a/b'])
+  expect(dirsAbove('/p/c.ts', '/p')).toEqual([])
 })

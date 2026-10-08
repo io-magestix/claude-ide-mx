@@ -26,7 +26,6 @@ export type Buffer = {
 }
 
 export const UNDO_CAP = 200
-export const CHUNK_SIZE = 90_000
 
 // ---------------------------------------------------------------- positions
 
@@ -34,8 +33,8 @@ const cmp = (a: Pos, b: Pos): number =>
   a.line !== b.line ? a.line - b.line : a.col - b.col
 const same = (a: Pos, b: Pos): boolean => a.line === b.line && a.col === b.col
 const isEmpty = (c: Cursor): boolean => same(c.anchor, c.head)
-const startOf = (c: Cursor): Pos => (cmp(c.anchor, c.head) <= 0 ? c.anchor : c.head)
-const endOf = (c: Cursor): Pos => (cmp(c.anchor, c.head) <= 0 ? c.head : c.anchor)
+export const startOf = (c: Cursor): Pos => (cmp(c.anchor, c.head) <= 0 ? c.anchor : c.head)
+export const endOf = (c: Cursor): Pos => (cmp(c.anchor, c.head) <= 0 ? c.head : c.anchor)
 const caret = (p: Pos): Cursor => ({ anchor: p, head: p })
 
 const clampPos = (lines: string[], p: Pos): Pos => {
@@ -681,7 +680,7 @@ export const deleteWordBack = (buffer: Buffer): Buffer =>
 
 // The lines each cursor works on: a selection ending at column 0 of a later
 // line does not take that line. Blocks merge when they overlap (or touch).
-const rangeOf = (c: Cursor): [number, number] => {
+const lineSpanOf = (c: Cursor): [number, number] => {
   const s = startOf(c)
   const e = endOf(c)
 
@@ -691,7 +690,7 @@ const rangeOf = (c: Cursor): [number, number] => {
 const blocksOf = (buffer: Buffer, touching: boolean): [number, number][] => {
   const out: [number, number][] = []
   for (const c of buffer.cursors) {
-    const [a, b] = rangeOf(c)
+    const [a, b] = lineSpanOf(c)
     const prev = out[out.length - 1]
     if (prev && a <= prev[1]! + (touching ? 1 : 0)) prev[1] = Math.max(prev[1]!, b)
     else out.push([a, b])
@@ -958,7 +957,7 @@ export const paste = (buffer: Buffer, text: string): Buffer => {
 // ----------------------------------------------------------------- chunking
 
 // Pieces of at most `size` chars, never splitting a surrogate pair.
-export const chunks = (text: string, size = CHUNK_SIZE): string[] => {
+export const chunks = (text: string, size: number): string[] => {
   const out: string[] = []
   let i = 0
   while (i < text.length) {
@@ -993,7 +992,7 @@ for (const l of ['sql', 'lua', 'haskell', 'ada']) COMMENTS[l] = '--'
 
 // Line-comment prefix of a highlighter language (see `languageOf` in tree.ts).
 export const commentOf = (language: string | undefined): string | undefined =>
-  language ? COMMENTS[language.toLowerCase()]! : undefined
+  language ? COMMENTS[language.toLowerCase()] : undefined
 
 // ------------------------------------------------------------------- keymap
 
@@ -1124,11 +1123,11 @@ export const parseChord = (text: string): Chord | undefined => {
     mods = s.split('+')
     key = mods.pop() ?? ''
   }
-  key = KEY_ALIASES[key]! ?? key
+  key = KEY_ALIASES[key] ?? key
   if (!(KEY_NAMES.has(key) || [...key].length === 1)) return undefined
   const chord: Chord = { key, ctrl: false, meta: false, shift: false }
   for (const m of mods) {
-    const name = MODS[m]!
+    const name = MODS[m]
     if (!name) return undefined
     chord[name] = true
   }
@@ -1150,7 +1149,7 @@ const eventChord = (e: ClientKeyEvent): Chord => {
     key = lower
     shift = true
   }
-  key = KEY_ALIASES[key]! ?? key
+  key = KEY_ALIASES[key] ?? key
 
   return { key, ctrl: e.ctrl === true, meta: e.meta === true, shift }
 }
@@ -1216,7 +1215,7 @@ export const mergeKeymap = (
 
 export const keyOp = (event: ClientKeyEvent, keymap: Keymap): Action | undefined => {
   const text = chordText(eventChord(event))
-  for (const a of ACTIONS) if (keymap[a]!?.includes(text)) return a
+  for (const a of ACTIONS) if (keymap[a]?.includes(text)) return a
 
   return undefined
 }
@@ -1228,10 +1227,6 @@ export type ActionCtx = {
   comment?: string
   // Rows a page move covers (the viewport height); default 20.
   rows?: number
-  // One indent step; default two spaces.
-  indent?: string
-  // Text for `paste`; default the editor's own last copy.
-  clipboard?: string
 }
 export type ActionResult = {
   buffer: Buffer
@@ -1247,7 +1242,6 @@ export const applyAction = (
   ctx: ActionCtx = {},
 ): ActionResult => {
   const rows = ctx.rows ?? 20
-  const unit = ctx.indent ?? '  '
   const b = (next: Buffer): ActionResult => ({ buffer: next })
   switch (action) {
     case 'moveLeft': return b(move(buffer, 'left'))
@@ -1284,8 +1278,8 @@ export const applyAction = (
     case 'duplicateLines': return b(duplicateLines(buffer, 1))
     case 'duplicateLinesUp': return b(duplicateLines(buffer, -1))
     case 'deleteLines': return b(deleteLines(buffer))
-    case 'indent': return b(indent(buffer, unit))
-    case 'outdent': return b(outdent(buffer, unit))
+    case 'indent': return b(indent(buffer))
+    case 'outdent': return b(outdent(buffer))
     case 'toggleComment': return b(toggleComment(buffer, ctx.comment))
     case 'newline': return b(newline(buffer))
     case 'backspace': return b(backspace(buffer))
@@ -1303,7 +1297,7 @@ export const applyAction = (
 
       return { buffer: r.buffer, copy: r.text }
     }
-    case 'paste': return b(paste(buffer, ctx.clipboard ?? buffer.clip ?? ''))
+    case 'paste': return b(paste(buffer, buffer.clip ?? ''))
     case 'save': return { buffer, save: true }
   }
 }

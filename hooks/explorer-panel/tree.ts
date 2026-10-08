@@ -1,4 +1,5 @@
-import { widthOf } from '../shared/hscroll'
+import { colsOf, widthOf } from '../shared/hscroll'
+import { CODE_MAX_CHARS } from './preview'
 
 export type Mode = 'files' | 'unity'
 
@@ -16,16 +17,11 @@ export type Row = {
   isExpanded: boolean
 }
 
-// Decides whether an entry of `parentPath` is shown in `mode`. `root` is the
-// tree's root, so a filter can tell the top level apart.
-export type EntryFilter = (
-  entry: Entry,
-  parentPath: string,
-  mode: Mode,
-  root: string,
-) => boolean
+// Decides whether an entry of `parentPath` is shown. `root` is the tree's
+// root, so a filter can tell the top level apart.
+export type EntryFilter = (entry: Entry, parentPath: string, root: string) => boolean
 
-// FileExplorer: everything but `.git`.
+// Files mode: everything but `.git`.
 export const hideGit: EntryFilter = entry => entry.name !== '.git'
 
 const UNITY_TOP = new Set(['Assets', 'Packages', 'ProjectSettings'])
@@ -33,7 +29,7 @@ const UNITY_NOISE = new Set(['Library', 'Temp', 'Logs', 'obj', 'UserSettings'])
 
 // Unity: no `.git` or `.meta`; the top level shows only Assets, Packages and
 // ProjectSettings; build and cache dirs are hidden at any depth.
-export const unityFilter: EntryFilter = (entry, parentPath, _mode, root) => {
+export const unityFilter: EntryFilter = (entry, parentPath, root) => {
   if (entry.name === '.git' || entry.name.endsWith('.meta')) return false
   if (parentPath === root) {
     return entry.kind === 'dir' && UNITY_TOP.has(entry.name)
@@ -48,8 +44,6 @@ export const filters: Record<Mode, EntryFilter> = {
   unity: unityFilter,
 }
 
-export const filterFor = (mode: Mode): EntryFilter => filters[mode]
-
 export const join = (dir: string, name: string): string =>
   dir.endsWith('/') ? dir + name : dir + '/' + name
 
@@ -57,6 +51,14 @@ export const parentOf = (path: string): string => {
   const cut = path.lastIndexOf('/')
 
   return cut <= 0 ? '/' : path.slice(0, cut)
+}
+
+// The dirs between `root` and `path`, outermost first (neither included).
+export const dirsAbove = (path: string, root: string): string[] => {
+  const dirs: string[] = []
+  for (let dir = parentOf(path); dir.length > root.length; dir = parentOf(dir)) dirs.unshift(dir)
+
+  return dirs
 }
 
 // The file a `new` name makes under `base`: `a/b.ts` nests (its dirs are
@@ -130,7 +132,6 @@ export const sortEntries = (entries: readonly Entry[]): Entry[] => [
 ]
 
 export type FlattenOptions = {
-  filter?: EntryFilter
   mode?: Mode
 }
 
@@ -143,11 +144,11 @@ export const flatten = (
   options: FlattenOptions = {},
 ): Row[] => {
   const mode = options.mode ?? 'files'
-  const filter = options.filter ?? filterFor(mode)
+  const filter = filters[mode]
   const rows: Row[] = []
   const walk = (dir: string, depth: number): void => {
     const entries = listings.get(dir) ?? []
-    const shown = entries.filter(entry => filter(entry, dir, mode, root))
+    const shown = entries.filter(entry => filter(entry, dir, root))
     for (const entry of sortEntries(shown)) {
       const path = join(dir, entry.name)
       const isExpanded = entry.kind === 'dir' && expanded.has(path)
@@ -233,8 +234,8 @@ export const formatSize = (bytes: number): string =>
       ? `${(bytes / 1024).toFixed(1)} KiB`
       : `${(bytes / 1024 / 1024).toFixed(1)} MiB`
 
-// Code's `source` is capped at 10000 characters; keep the first `lines` lines.
-export const clip = (text: string, lines: number, chars = 10000): string => {
+// Code's `source` is capped at CODE_MAX_CHARS; keep the first `lines` lines.
+export const clip = (text: string, lines: number, chars = CODE_MAX_CHARS): string => {
   const kept = text.split('\n').slice(0, Math.max(1, lines)).join('\n')
 
   return kept.length > chars ? kept.slice(0, chars) : kept
@@ -245,9 +246,7 @@ export const clip = (text: string, lines: number, chars = 10000): string => {
 // each row on one line. A `width` under 1 leaves just the `…`.
 export const fitLabel = (label: string, width: number): string => {
   const room = Math.max(1, Math.floor(width))
-  let cols = 0
-  for (const ch of label) cols += widthOf(ch.codePointAt(0)!)
-  if (cols <= room) return label
+  if (colsOf(label) <= room) return label
   let out = ''
   let used = 0
   for (const ch of label) {

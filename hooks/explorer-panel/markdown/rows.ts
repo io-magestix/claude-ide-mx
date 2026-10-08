@@ -1,7 +1,7 @@
 // Layout output (layout.ts): rows at one width, each exactly one terminal row,
 // so a viewer scrolls by rows and knows the total without measuring.
 
-/** Theme role a span is colored with (hooks/theme.ts tokens); absent = `text`. */
+/** Theme role a span is colored with (hooks/shared/theme.ts tokens); absent = `text`. */
 export type Role = 'text' | 'accent' | 'muted' | 'border' | 'success' | 'warning' | 'danger'
 
 export type SpanStyle = {
@@ -16,7 +16,7 @@ export type SpanStyle = {
   href?: string // a link target as written (http(s), relative path, #slug, mailto:)
 }
 
-/** A run of text in one style; its width is `widthOf(text)` (width.ts), never wrapping. */
+/** A run of text in one style; its width is `colsOf(text)` (shared/hscroll.ts), never wrapping. */
 export type Span = { text: string; style?: SpanStyle }
 
 /**
@@ -28,13 +28,13 @@ export type Span = { text: string; style?: SpanStyle }
  *   the 0-based source line inside the block (a wrapped line repeats it).
  *   `table` marks a table's rows (borders and cells): a link there must not draw as a
  *   `Link` (a terminal without OSC 8 writes the URL after the label, breaking the borders).
- * - `image`: a paragraph that is only one image (I9); drawn as a placeholder row by the
- *   showcase, as a picture by the Explorer (stage 3). `prefix` as for code.
+ * - `image`: a paragraph that is only one image (I9); Preview draws it as a picture, else
+ *   a `🖼 alt` row (view.ts). `prefix` as for code.
  */
 export type MdRow =
   | { kind: 'text'; spans: Span[]; table?: true }
   | { kind: 'code'; prefix: Span[]; text: string; lang: string; block: number; line: number }
-  | { kind: 'image'; prefix: Span[]; src: string; alt: string; title: string }
+  | { kind: 'image'; prefix: Span[]; src: string; alt: string }
 
 export type Layout = {
   rows: MdRow[]

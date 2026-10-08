@@ -4,7 +4,7 @@
 
 import { slugify } from './blocks'
 import type { Layout, MdRow, Span } from './rows'
-import { cols } from './wrap'
+import { colsOf } from '../../shared/hscroll'
 
 /** A local image of an `image` row, sized in cells, drawn by the terminal's `Image`. */
 export type Picture = { png: string; mtime: number; columns: number; rows: number }
@@ -123,7 +123,7 @@ export function linkHits(rows: readonly ViewRow[], isPressable: (href: string, r
     let x = 0
     let last: LinkHit | undefined
     for (const span of row.spans) {
-      const w = cols(span.text)
+      const w = colsOf(span.text)
       const href = span.style?.href
       if (href !== undefined && w > 0 && isPressable(href, row)) {
         if (last !== undefined && last.href === href && last.x + last.width === x) {

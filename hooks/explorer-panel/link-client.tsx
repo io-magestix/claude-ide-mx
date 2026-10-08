@@ -1,5 +1,7 @@
 import type { ClientModule, ClientPointerEvent, ClientSurface } from 'claude-code'
 
+import { isOnRow } from '../shared/row-gesture'
+
 // One link run of rendered markdown in Preview, laid exactly over the Text it
 // was drawn as and drawing the same label (underlined accent), so the two
 // look alike whether or not the region paints. A left down and up inside the
@@ -39,16 +41,13 @@ const LinkClient: ClientModule<Props, State> = (props, surface) => {
   )
 }
 
-const isInside = (surface: ClientSurface<State>, x: number, y: number): boolean =>
-  y === 0 && x >= 0 && (surface.columns === 0 || x < surface.columns)
-
 const point = (surface: ClientSurface<State>, cells: Cells, event: ClientPointerEvent): void => {
   if (event.type === 'down') {
-    cells.isDown = event.button === 'left' && isInside(surface, event.x, event.y)
+    cells.isDown = event.button === 'left' && isOnRow(surface.columns, event.x, event.y)
   } else if (event.type === 'up') {
     const wasDown = cells.isDown
     cells.isDown = false
-    if (wasDown && event.button === 'left' && isInside(surface, event.x, event.y)) {
+    if (wasDown && event.button === 'left' && isOnRow(surface.columns, event.x, event.y)) {
       surface.post({ link: cells.props.i, path: cells.props.path, offset: cells.props.offset })
     }
   }

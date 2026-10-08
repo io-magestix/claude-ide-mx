@@ -1,19 +1,8 @@
+import { mixHex } from '../shared/color'
 import type { Theme } from '../shared/theme'
 
-const rgb = (hex: string): [number, number, number] => {
-  const n = parseInt(hex.slice(1), 16)
-
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-
 // Halfway between two #rrggbb colors.
-export const mix = (a: string, b: string): string => {
-  const [ar, ag, ab] = rgb(a)
-  const [br, bg, bb] = rgb(b)
-  const hex = (x: number, y: number) => Math.round((x + y) / 2).toString(16).padStart(2, '0')
-
-  return '#' + hex(ar, br) + hex(ag, bg) + hex(ab, bb)
-}
+const mix = (a: string, b: string): string => mixHex(a, b, 0.5)
 
 // Lane and dot colors, one per palette index (PALETTE_SIZE in git.ts), derived
 // from the theme's semantic colors so each theme tints the graph its own way.

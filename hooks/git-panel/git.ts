@@ -1,4 +1,5 @@
-// The git view's pane id, which `/ide-panels` opens.
+// The git view's pane id: it draws the panel alone (the tests mount it); the
+// split pane `ide-split` is what `/ide-panels` opens.
 export const GIT_PANE = 'ide-git'
 
 export type Branch = {
@@ -477,7 +478,6 @@ export const sliceDiff = (diff: string, offset: number, rows: number): string =>
   return out.some(line => HUNK.test(line)) ? out.join('\n') : ''
 }
 
-// The first `rows` lines of a unified diff, still a valid diff.
 // A path list grouped by `/`: a folder or a leaf, with its depth under the
 // root. Leaves come before the folders of a level; folders are sorted.
 export type TreeRow<T> =
@@ -699,24 +699,17 @@ export const changeWords = (change: Change): string =>
         : 'renamed'
       : change.kind
 
-// The list as shown: `list` is every path in order; `tree` groups by `/`.
+// The list as shown: a tree grouped by `/`.
 export type ChangeRow = TreeRow<Change>
 
-export const changeRows = (
-  changes: readonly Change[],
-  mode: 'list' | 'tree',
-  collapsed: ReadonlySet<string>,
-): ChangeRow[] => {
+export const changeRows = (changes: readonly Change[], collapsed: ReadonlySet<string>): ChangeRow[] => {
   const sorted = [...changes].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  if (mode === 'tree') {
-    return pathTree(
-      sorted.map(change => ({ path: change.path, item: change })),
-      collapsed,
-      'c:',
-    )
-  }
 
-  return sorted.map(change => ({ kind: 'leaf', item: change, name: change.path, depth: 0 }))
+  return pathTree(
+    sorted.map(change => ({ path: change.path, item: change })),
+    collapsed,
+    'c:',
+  )
 }
 
 // The diff of one change against HEAD. An untracked file is not known to git,
@@ -797,10 +790,10 @@ export const parseContains = (stdout: string): Contains => {
   const remote: string[] = []
   for (const line of lines(stdout)) {
     const ref = line.trim()
-    if (ref.startsWith('refs/heads/')) {
-      local.push(ref.slice('refs/heads/'.length))
-    } else if (ref.startsWith('refs/remotes/')) {
-      const name = ref.slice('refs/remotes/'.length)
+    if (ref.startsWith(LOCAL)) {
+      local.push(ref.slice(LOCAL.length))
+    } else if (ref.startsWith(REMOTE)) {
+      const name = ref.slice(REMOTE.length)
       if (!name.endsWith('/HEAD')) remote.push(name)
     }
   }

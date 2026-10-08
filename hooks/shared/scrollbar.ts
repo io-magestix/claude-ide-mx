@@ -3,6 +3,10 @@ export const TRACK = '│'
 export const H_THUMB = '━'
 export const H_TRACK = '─'
 
+// `value` held to 0..max (a negative `max` is 0).
+export const clamp = (value: number, max: number): number =>
+  Math.min(Math.max(0, value), Math.max(0, max))
+
 // A one-column scrollbar of `height` rows over `total` rows of which `visible`
 // show from `offset`: the thumb is proportional (at least 1 row), its place
 // follows offset / (total - visible). All blank when everything fits.

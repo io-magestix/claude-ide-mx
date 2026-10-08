@@ -2,14 +2,12 @@ import type { ClientModule, ClientPointerEvent, ClientSurface } from 'claude-cod
 
 // One cell per visible commit row (top to bottom): Commits' dot (`glyph` in
 // its lane color) or none (Graph), then the dim marker (`>` on the selected
-// row) and short sha. `background` paints the selected row; `delayMs` is how
-// long the pointer rests on one row before the hooks module is told
-// (`{ hover: y }`). A left down and up on one row posts `{ press: y }`.
+// row) and short sha. `background` paints the selected row. After the pointer
+// rests DELAY_MS on one row the hooks module is told (`{ hover: y }`). A left down and up on one row posts `{ press: y }`.
 type Row = { glyph?: string; color?: string; mark: string; short: string }
 type Props = {
   rows: Row[]
   background?: string
-  delayMs?: number
 }
 
 const DELAY_MS = 600
@@ -86,7 +84,7 @@ const point = (
 const tick = (surface: ClientSurface<State>, cells: Cells): void => {
   if (cells.row === undefined || cells.isShown) return
   cells.rested += TICK_MS
-  if (cells.rested < (cells.props.delayMs ?? DELAY_MS)) return
+  if (cells.rested < DELAY_MS) return
   cells.isShown = true
   surface.post({ hover: cells.row })
 }

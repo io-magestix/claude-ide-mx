@@ -1,6 +1,6 @@
 import type { ClientModule, ClientPointerEvent, ClientSurface } from 'claude-code'
 
-import { H_THUMB, H_TRACK, THUMB, scrollbar } from './scrollbar'
+import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from './scrollbar'
 
 // `axis` 'y' (the default) draws one column of `height` rows; 'x' draws one
 // row, `height` then read as the bar's length in columns. The laid-out size
@@ -18,9 +18,6 @@ type Props = {
 // latest props, and the offset under a drag (`undefined` when none).
 type Cells = { props: Props; held?: number; grab: number }
 type State = { cells: Cells }
-
-const clamp = (value: number, max: number): number =>
-  Math.min(Math.max(0, value), Math.max(0, max))
 
 // The bar's length in cells along its axis.
 const lengthOf = (surface: ClientSurface<State>, props: Props): number =>
@@ -60,44 +57,29 @@ const ScrollBar: ClientModule<Props, State> = (props, surface) => {
   const held = surface.state?.cells.held
   const offset = held ?? props.offset
 
-  if (props.axis === 'x') {
-    const bar = scrollbar(props.total, props.visible, offset, length, {
-      thumb: H_THUMB,
-      track: H_TRACK,
-    })
+  const isX = props.axis === 'x'
+  const thumb = isX ? H_THUMB : THUMB
+  const bar = scrollbar(props.total, props.visible, offset, length, isX ? { thumb: H_THUMB, track: H_TRACK } : undefined)
+  // Two Texts, not one with `dimColor={undefined}`: the engine refuses some props set to undefined.
+  const cells = bar.map((cell, i) =>
+    cell === thumb ? (
+      <Text key={'bar:' + i} color={props.color}>
+        {cell}
+      </Text>
+    ) : (
+      <Text key={'bar:' + i} dimColor>
+        {cell}
+      </Text>
+    ),
+  )
 
-    return (
-      <Box flexDirection="row" height={1} flexShrink={0}>
-        {bar.map((cell, i) =>
-          cell === H_THUMB ? (
-            <Text key={'bar:' + i} color={props.color}>
-              {cell}
-            </Text>
-          ) : (
-            <Text key={'bar:' + i} dimColor>
-              {cell}
-            </Text>
-          ),
-        )}
-      </Box>
-    )
-  }
-
-  const bar = scrollbar(props.total, props.visible, offset, length)
-
-  return (
+  return isX ? (
+    <Box flexDirection="row" height={1} flexShrink={0}>
+      {cells}
+    </Box>
+  ) : (
     <Box flexDirection="column" width={1} flexShrink={0}>
-      {bar.map((cell, i) =>
-        cell === THUMB ? (
-          <Text key={'bar:' + i} color={props.color}>
-            {cell}
-          </Text>
-        ) : (
-          <Text key={'bar:' + i} dimColor>
-            {cell}
-          </Text>
-        ),
-      )}
+      {cells}
     </Box>
   )
 }

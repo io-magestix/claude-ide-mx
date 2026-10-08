@@ -11,6 +11,7 @@ import type {
   Block,
   FootnoteDef,
   Inline,
+  LineRange,
   LinkRef,
   ListItem,
 } from './ast'
@@ -76,12 +77,13 @@ export function normalize(text: string): string {
   if (text.indexOf('\t') >= 0)
     text = text
       .split('\n')
-      .map((l) => (l.indexOf('\t') >= 0 ? expandTabs(l) : l))
+      .map((l) => (l.indexOf('\t') >= 0 ? expandTabStops4(l) : l))
       .join('\n')
   return text
 }
 
-function expandTabs(line: string): string {
+// CommonMark's 4-column tab stops (not the Code view's `expandTabs`).
+function expandTabStops4(line: string): string {
   let out = ''
   let col = 0
   for (let i = 0; i < line.length; i++) {
@@ -216,10 +218,9 @@ function parseRefDef(s: string, refs: Map<string, LinkRef>): number {
   p = dest.end
   const afterDest = p
   if (p < s.length && !/[ \t\n]/.test(s[p]!)) return 0
-  const beforeTitle = p
   p = skip(SPNL, s, p)
   let title: string | null = null
-  if (p !== beforeTitle) {
+  if (p !== afterDest) {
     const t = scanTitle(s, p)
     if (t) {
       title = t.value
@@ -539,10 +540,8 @@ class BlockParser {
           para.lines.pop()
           para.endLine = this.lineNo - 2
           const parent = para.parent!
-          if (!para.lines.length) {
-            parent.children.pop()
-            this.tip = parent
-          } else this.finalize(para)
+          if (!para.lines.length) parent.children.pop()
+          else this.finalize(para)
           this.tip = parent
           const t = this.addChild('table', this.lineNo - 1)
           t.align = align
@@ -681,13 +680,8 @@ class BlockParser {
         break
       }
       case 'code':
-        if (!b.fenced) {
-          let n = b.lines.length
-          while (n > 0 && !/\S/.test(b.lines[n - 1]!)) n--
-          b.endLine -= b.lines.length - n
-          b.lines.length = n
-        }
-        break
+        if (b.fenced) break
+      // falls through: indented code drops trailing blank lines as html does
       case 'html': {
         let n = b.lines.length
         while (n > 0 && !/\S/.test(b.lines[n - 1]!)) n--
@@ -775,9 +769,6 @@ export function slugify(text: string): string {
 
 type Ctx = {
   refs: Map<string, LinkRef>
-  defs: Map<string, BNode>
-  numbers: Map<string, number>
-  order: string[]
   slugs: Map<string, number>
   footnote: (label: string) => number | undefined
 }
@@ -844,7 +835,7 @@ export function htmlFlow(nodes: readonly Inline[]): Inline[] {
   return out
 }
 
-function spanOf(b: BNode): { startLine: number; endLine: number } {
+function spanOf(b: BNode): LineRange {
   let end = b.endLine
   const last = b.children[b.children.length - 1]
   if (last) end = Math.max(end, spanOf(last).endLine)
@@ -921,7 +912,6 @@ function convert(n: BNode, ctx: Ctx, top: boolean): Block | null {
         ...span,
         fenced: n.fenced,
         lang: info.split(/\s+/)[0] ?? '',
-        info,
         text: n.lines.join('\n'),
         closed: n.fenced ? n.closed : true,
       }
@@ -953,7 +943,6 @@ function convert(n: BNode, ctx: Ctx, top: boolean): Block | null {
           ...span,
           fenced: false,
           lang: '',
-          info: '',
           text: inner.replace(/<[^>]*>/g, '').replace(/\n$/, ''),
           closed: true,
         }
@@ -1086,9 +1075,6 @@ export function parseBlocks(text: string): BlocksResult {
   const order: string[] = []
   const ctx: Ctx = {
     refs: parser.refs,
-    defs: parser.footnoteDefs,
-    numbers,
-    order,
     slugs: new Map(),
     footnote: (label) => {
       if (!parser.footnoteDefs.has(label)) return undefined

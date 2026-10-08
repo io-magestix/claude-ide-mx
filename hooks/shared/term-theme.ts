@@ -2,7 +2,7 @@
 // terminal's own color scheme where it is known (Tabby's, read from its
 // config.yaml). Pure: the panels read the files and the config and hand the
 // text and names here.
-import { mixHex } from '../explorer-panel/edit'
+import { mixHex } from './color'
 import type { Theme } from './theme'
 import { contrast, luminance } from './ui'
 
@@ -165,7 +165,6 @@ export const themeFromClaudeCode = (name: string | undefined, scheme: TermScheme
   const border = c('promptBorder')
 
   return {
-    name: 'claude-code',
     bg: scheme?.background ?? (isLight ? '#ffffff' : '#1f1f1f'),
     canvas: scheme?.background,
     surface,

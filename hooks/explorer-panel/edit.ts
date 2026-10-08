@@ -1,54 +1,27 @@
+import { mixHex } from '../shared/color'
+import type { Theme } from '../shared/theme'
 import { assemble } from './editor'
 import type { Keymap } from './editor'
-import type { Theme } from '../shared/theme'
+import { hashOf } from './preview'
 
 // Pure helpers of the Edit section's hook side: draft file names and the
 // assembly of chunked messages from the editor client.
 
 // FNV-1a, two seeds: 16 hex digits name a draft without a path in the file name.
-const fnv = (text: string, seed: number): string => {
-  let h = seed
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i)
-    h = Math.imul(h, 0x01000193) >>> 0
-  }
-
-  return h.toString(16).padStart(8, '0')
-}
-
-export const hashPath = (path: string): string =>
-  fnv(path, 0x811c9dc5) + fnv(path, 0x01234567)
+export const hashPath = (path: string): string => hashOf(path) + hashOf(path, 0x01234567)
 
 export const DRAFT_DIR = '.claude/ide-panes/drafts'
 
 export const draftFile = (home: string, path: string): string =>
   `${home.replace(/\/$/, '')}/${DRAFT_DIR}/${hashPath(path)}.txt`
 
-// The editor's colors, from the Settings theme (index.tsx `editorColors`).
+// The editor's colors, from the theme (`editorColors` below).
 export type EditorColors = {
   text: string
   gutter: string // line numbers
   caret: string // the caret cell's background
   caretText: string // the caret cell's text
   selection: string // a selected run's background
-}
-
-// `a` moved toward `b` by `amount` (0..1), both '#rrggbb'; `a` when either is not.
-export const mixHex = (a: string, b: string, amount: number): string => {
-  const ma = /^#([0-9a-f]{6})$/i.exec(a)
-  const mb = /^#([0-9a-f]{6})$/i.exec(b)
-  if (ma === null || mb === null) return a
-  const na = parseInt(ma[1] as string, 16)
-  const nb = parseInt(mb[1] as string, 16)
-  const k = Math.min(1, Math.max(0, amount))
-  const c = (shift: number) => {
-    const x = (na >> shift) & 255
-    const y = (nb >> shift) & 255
-
-    return Math.round(x + (y - x) * k).toString(16).padStart(2, '0')
-  }
-
-  return '#' + c(16) + c(8) + c(0)
 }
 
 // The editor's colors in a theme: text and a muted gutter, the caret as the
@@ -65,10 +38,7 @@ export const editorColors = (t: Theme): EditorColors => ({
 export type EditorProps = {
   path: string
   language: string // '' when none (no comment prefix)
-  color: string
-  // Theme colors of the drawing; absent: the terminal's own (default text,
-  // dim gutter, inverse caret, ansi256(24) selection).
-  colors?: EditorColors
+  colors: EditorColors // the theme's, for the drawing
   keymap: Keymap
   rows: number // the region's rows and columns as the hook laid them out
   columns: number

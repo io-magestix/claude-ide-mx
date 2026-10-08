@@ -148,11 +148,21 @@ export const expandTabs = (line: string): string => {
   return out
 }
 
-const colsOf = (text: string): number => {
-  let cols = 0
-  for (const ch of text) cols += widthOf(ch.codePointAt(0)!)
+// Columns of `text`, no tab expansion (printable ASCII takes the fast path).
+export const colsOf = (text: string): number => {
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c >= 0x20 && c < 0x7f) {
+      n++
+      continue
+    }
+    const cp = text.codePointAt(i)!
+    if (cp > 0xffff) i++
+    n += widthOf(cp)
+  }
 
-  return cols
+  return n
 }
 
 // Columns of the widest line, tabs expanded.
@@ -201,7 +211,6 @@ const HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/
 // still parse. As `parseDiff` in `git-panel/git.ts` does, body lines are told
 // by the header's counts, so a removed `--- x` inside a hunk is a body line.
 export const sliceDiffCols = (patch: string, left: number): string => {
-  const from = Number.isFinite(left) ? Math.floor(left) : 0
   let old = 0
   let next = 0
 
@@ -218,7 +227,7 @@ export const sliceDiffCols = (patch: string, left: number): string => {
             next--
           } else return line
 
-          return marker + sliceCols(line.slice(1), from)
+          return marker + sliceCols(line.slice(1), left)
         }
       }
       const match = HUNK.exec(line)

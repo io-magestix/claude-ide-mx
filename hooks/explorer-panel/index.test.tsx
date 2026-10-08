@@ -2038,10 +2038,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'row:/proj/src' })
     await ui.press({ key: 'row:/proj/src/main.ts' })
     await ui.press({ key: 'edit' })
-    const props = (await ui.find({ key: 'editor' }))?.props.props as { color: string; colors?: { text: string; gutter: string } }
-    expect(props.color).toBe(t.accent)
-    expect(props.colors?.text).toBe(t.text)
-    expect(props.colors?.gutter).toBe(t.muted)
+    const props = (await ui.find({ key: 'editor' }))?.props.props as { colors: { text: string; gutter: string } }
+    expect(props.colors.text).toBe(t.text)
+    expect(props.colors.gutter).toBe(t.muted)
   })
 
   test(`${surface}: /color tints the frames and the accent`, async ($, on) => {
