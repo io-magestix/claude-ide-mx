@@ -552,7 +552,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(statuses()).toBe(2)
   })
 
-  test(`${surface}: hotkeys a and r are set; r reloads`, async ($, on) => {
+  test(`${surface}: no Button carries a hotkey; refresh reloads`, async ($, on) => {
     mock.store(on)
     const calls: string[][] = []
     fake(on, calls)
@@ -566,8 +566,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
       viewport: VIEWPORT,
     })
 
-    expect((await ui.find({ key: 'all' }))?.props.hotkey).toBe('a')
-    expect((await ui.find({ key: 'refresh' }))?.props.hotkey).toBe('r')
+    expect(await ui.find({ key: 'all' })).toBeDefined()
+    expect(await ui.find({ key: 'refresh' })).toBeDefined()
+    for (const b of await ui.findAll({ type: 'Button' })) expect(b.props.hotkey).toBeUndefined()
     await ui.press({ key: 'branch:origin/main' })
     const before = calls.filter(a => a[1] === 'log').length
     await ui.press({ key: 'all' })
@@ -598,8 +599,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       viewport: VIEWPORT,
     })
 
-    expect((await ui.find({ key: 'fetch' }))?.props.hotkey).toBe('f')
-    expect((await ui.find({ key: 'pull' }))?.props.hotkey).toBe('p')
+    expect(await ui.find({ key: 'fetch' })).toBeDefined()
+    expect(await ui.find({ key: 'pull' })).toBeDefined()
     await ui.press({ key: 'fetch' })
     expect(calls).toContainEqual(['git', 'fetch', '--all'])
     expect(toasts.at(-1)).toBe('git fetch: done')
@@ -737,9 +738,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     test(`${surface}/${columns}: tabs switch the panel between Overview, Graph and Change Log`, async ($, on) => {
       const ui = await open($, on)
 
-      expect((await ui.find({ key: 'tab:overview' }))?.props.hotkey).toBe('o')
-      expect((await ui.find({ key: 'tab:graph' }))?.props.hotkey).toBe('g')
-      expect((await ui.find({ key: 'tab:changelog' }))?.props.hotkey).toBe('c')
+      expect(await ui.find({ key: 'tab:overview' })).toBeDefined()
+      expect(await ui.find({ key: 'tab:graph' })).toBeDefined()
+      expect(await ui.find({ key: 'tab:changelog' })).toBeDefined()
       expect((await ui.find({ key: 'tab:changelog' }))?.props.label).toContain('Change Log 3')
       expect(await isOn(ui, 'tab:overview')).toBe(true)
       // Overview: Branches, Commits, Info; no Files
@@ -832,7 +833,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await open($, on, [], ['?? src/a.ts', ' M src/ui/b.ts', ' M top.txt', ''].join('\0'))
       await ui.press({ key: 'tab:changelog' })
 
-      expect((await ui.find({ key: 'view' }))?.props.hotkey).toBe('v')
+      expect(await ui.find({ key: 'view' })).toBeDefined()
       expect(await keys(ui, 'cdir:')).toEqual([])
       expect(await ui.find({ type: 'Text', text: 'src/' })).toBeDefined()
       await ui.press({ key: 'view' })
@@ -948,7 +949,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         .map(b => b.key ?? '')
         .filter(key => key.startsWith(prefix))
 
-    test(`${surface}/${columns}: every commit row has a diff button, the selected one holds d`, async ($, on) => {
+    test(`${surface}/${columns}: every commit row has a diff button, kept when a commit is selected`, async ($, on) => {
       const ui = await open($, on)
 
       for (const tab of ['tab:overview', 'tab:graph']) {
@@ -956,8 +957,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         expect((await keys(ui, 'diff:')).length).toBe(9)
         expect((await ui.find({ key: 'diff:' + HEAD_SHA }))?.props.label).toContain('⧉')
         await ui.press({ key: 'commit:' + HEAD_SHA })
-        const moved = (await ui.findAll({ type: 'Button' })).filter(b => b.props.hotkey === 'd')
-        expect(moved.map(b => b.key)).toEqual(['diff:' + HEAD_SHA])
+        expect((await keys(ui, 'diff:')).length).toBe(9)
       }
     })
 
@@ -982,7 +982,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         'dfile:plugin/package.json',
         'dfile:src/b.ts',
       ])
-      expect((await ui.find({ key: 'back' }))?.props.hotkey).toBe('b')
+      expect(await ui.find({ key: 'back' })).toBeDefined()
       // the first file is shown
       let code = await ui.find({ type: 'Code' })
       expect(code?.text).toContain('+changelog line')
@@ -1104,7 +1104,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       pointer: { column, row },
     } as never)
 
-  test(`${surface}: switching Overview/Graph keeps the selected commit in view and holding d`, async ($, on) => {
+  test(`${surface}: switching Overview/Graph keeps the selected commit in view with its diff button`, async ($, on) => {
     const ui = await open($, on, 160, 14)
     const keys = async () =>
       (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '').filter(k => k.startsWith('commit:'))
@@ -1115,8 +1115,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: last })
     for (const tab of ['tab:graph', 'tab:overview']) {
       await ui.press({ key: tab })
-      const held = (await ui.findAll({ type: 'Button' })).filter(b => b.props.hotkey === 'd')
-      expect(held.map(b => b.key)).toEqual(['diff:' + last.slice('commit:'.length)])
+      expect(await keys()).toContain(last)
+      expect(await ui.find({ key: 'diff:' + last.slice('commit:'.length) })).toBeDefined()
     }
   })
 
@@ -1822,9 +1822,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     `* \x1f${String(i).padStart(40, '0')}\x1f${String(i).padStart(7, '0')}\x1f\x1fa\x1f2026-01-01\x1fc${i}`,
   ).join('\n')
 
-  test(`${surface}: git's ⚙ (hotkey s) opens Settings on the title row; a default tab applies while none is chosen`, async ($, on) => {
+  test(`${surface}: git's ⚙ opens Settings on the title row; a default tab applies while none is chosen`, async ($, on) => {
     const { ui, store } = await open($, on)
-    expect((await ui.find({ key: 'settings' }))?.props.hotkey).toBe('s')
+    expect(await ui.find({ key: 'settings' })).toBeDefined()
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
     // the title row and its ⚙ stay above the sheet
@@ -1842,14 +1842,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await isOn(ui, 'tab:overview')).toBe(true)
   })
 
-  test(`${surface}: while git's sheet is up its Buttons sleep: hotkeys stay bound, a press does nothing`, async ($, on) => {
+  test(`${surface}: while git's sheet is up its Buttons sleep: a press does nothing`, async ($, on) => {
     const calls: string[][] = []
     const { ui } = await open($, on, [], calls)
     expect(await isOn(ui, 'tab:overview')).toBe(true)
 
     await ui.press({ key: 'settings' })
-    expect((await ui.find({ key: 'tab:graph' }))?.props.hotkey).toBe('g')
-    expect((await ui.find({ key: 'fetch' }))?.props.hotkey).toBe('f')
     await ui.press({ key: 'tab:graph' })
     await ui.press({ key: 'fetch' })
     await ui.press({ key: 'pull' })

@@ -897,9 +897,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // The commits a `more` adds, and the Settings sheet while it is up.
     const page = settingsNow.gitLimit ?? DEFAULTS.gitLimit
     const sheet = await read($, settingsUi)
-    // While the sheet is up the panel's own hotkeyed Buttons do nothing: the
-    // hotkeys stay bound, so the key is taken here (a key no Button takes
-    // would land in the prompt and hand it the keyboard), and a press is dropped.
+    // While the sheet is up the panel's own Buttons do nothing: a press is dropped.
     const asleep =
       <A extends unknown[]>(act: (...args: A) => unknown) =>
       (...args: A): void => {
@@ -952,7 +950,6 @@ export const register = (on: On, options?: PluginOptions): void => {
           {Btn(elements, t, {
             key: 'refresh',
             label: 'refresh',
-            hotkey: 'r',
             variant: 'ghost',
             size: 'sm',
             surface,
@@ -1324,7 +1321,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         <Box flexDirection="column" flexGrow={1}>
         <Box flexDirection="row" backgroundColor={state.ref === 'all' ? sel : undefined}>
           <Text color={t.accent}>{state.ref === 'all' ? '▌' : ' '}</Text>
-          <Button key="all" hotkey="a" plain label="all" onPress={asleep(() => select('all'))} />
+          <Button key="all" plain label="all" onPress={asleep(() => select('all'))} />
         </Box>
         {branchRows.map((row: BranchRow) => {
           // Rails per depth as in the explorer; a folder opens or closes.
@@ -1541,13 +1538,12 @@ export const register = (on: On, options?: PluginOptions): void => {
               {' ' + commit.date.padEnd(cols.date)}
             </Text>
           )}
-          {/* `d: ⧉` (4 cells) on the selected row, `⧉` on others, right-aligned in
-              DIFF_COLS: one cell always stays between the date and it. */}
+          {/* `⧉`, right-aligned in DIFF_COLS: one cell always stays between the
+              date and it. */}
           <Box width={DIFF_COLS} flexShrink={0} justifyContent="flex-end">
             <Button
               key={'diff:' + commit.sha}
               plain
-              hotkey={isSelected ? 'd' : undefined}
               label="⧉"
               onPress={asleep(() => openDiff(commit.sha))}
             />
@@ -1800,12 +1796,11 @@ export const register = (on: On, options?: PluginOptions): void => {
             {dragBar(p.barKey, p.rows.length, changeRoom, fwin.offset)}
           </Box>
             {/* The name chip (name + 2 cells from column 1), a border cell, then
-                `v: view: list` (13 cells, right 1). */}
-            {titled('title:files', fit(p.title, Math.max(5, filesCols - 18)))}
+                `view: list` (10 cells, right 1). */}
+            {titled('title:files', fit(p.title, Math.max(5, filesCols - 15)))}
             <Box position="absolute" top={0} right={1} flexDirection="row" gap={1}>
               <Button
                 key="view"
-                hotkey="v"
                 plain
                 label={`view: ${changeMode}`}
                 onPress={asleep(() =>
@@ -1861,16 +1856,14 @@ export const register = (on: On, options?: PluginOptions): void => {
             surface,
             tabs: (['overview', 'graph', 'changelog'] as const).map(id => ({ id, label: TAB_LABEL[id] })),
             selected: tab,
-            hotkeys: { overview: 'o', graph: 'g', changelog: 'c' },
             onSelect: asleep((id: string) => showTab(id as Tab)),
           })}
         </Box>
         <Box key="header:actions" flexDirection="row" gap={1}>
-          {isDiff && Btn(elements, t, { key: 'back', label: 'back', hotkey: 'b', variant: 'secondary', size: 'sm', surface, onPress: asleep(closeDiff) })}
+          {isDiff && Btn(elements, t, { key: 'back', label: 'back', variant: 'secondary', size: 'sm', surface, onPress: asleep(closeDiff) })}
           {Btn(elements, t, {
             key: 'refresh',
             label: 'refresh',
-            hotkey: 'r',
             variant: 'ghost',
             size: 'sm',
             surface,
@@ -1882,7 +1875,6 @@ export const register = (on: On, options?: PluginOptions): void => {
           {Btn(elements, t, {
             key: 'fetch',
             label: busy === 'fetch' ? 'fetching…' : 'fetch',
-            hotkey: 'f',
             variant: 'outline',
             size: 'sm',
             surface,
@@ -1891,7 +1883,6 @@ export const register = (on: On, options?: PluginOptions): void => {
           {Btn(elements, t, {
             key: 'pull',
             label: busy === 'pull' ? 'pulling…' : 'pull',
-            hotkey: 'p',
             variant: 'primary',
             size: 'sm',
             surface,

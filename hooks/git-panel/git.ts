@@ -738,7 +738,7 @@ export const fitStart = (text: string, width: number): string =>
 // `laneCols + 1 + 9`, the diff button zone `DIFF_COLS`; a wide row adds an
 // author (dropped under 80 columns) and a date, each followed by a space, and
 // the subject takes the rest (at least 4). `width` is the text width of the row.
-export const DIFF_COLS = 5
+export const DIFF_COLS = 2
 
 export const graphColumns = (
   width: number,

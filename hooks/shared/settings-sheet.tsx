@@ -20,18 +20,16 @@ import { THEME_NAMES } from './theme'
 import type { Theme } from './theme'
 import { Btn, Chip, Field, ModalBtn, RadioGroup, Switch } from './ui'
 
-// The ⚙ Button's key and hotkey (free in both panels).
+// The ⚙ Button's key.
 export const SETTINGS_BUTTON = 'settings'
-export const SETTINGS_HOTKEY = 's'
 
-/** The ⚙: a ghost Btn, `s: ⚙` on the terminal. */
+/** The ⚙: a ghost Btn. */
 export function SettingsButton(el: ElementTable, t: Theme, p: { surface?: RenderSurface; isOpen: boolean; onPress: () => void }) {
   return Btn(el, t, {
     key: SETTINGS_BUTTON,
     label: '⚙',
     variant: p.isOpen ? 'primary' : 'ghost',
     size: 'sm',
-    hotkey: SETTINGS_HOTKEY,
     surface: p.surface,
     onPress: p.onPress,
   })

@@ -1020,7 +1020,7 @@ const toplevelOf = async ($: EngineInterface, root: string): Promise<string> => 
   return base
 }
 
-// A double-click on a row, or `copy path` (`y`): the path as named from the
+// A double-click on a row, or `copy path`: the path as named from the
 // repo toplevel goes to the clipboard.
 const copyPath = async (
   $: EngineInterface,
@@ -1033,7 +1033,7 @@ const copyPath = async (
   await $.ui.toast(copied.isCopied ? `Copied: ${text}` : `Copy failed: ${copied.reason}`)
 }
 
-// `copy path` (`y`), or a double-click on a marked row, with 2+ marked: every
+// `copy path`, or a double-click on a marked row, with 2+ marked: every
 // marked path (named as `copyPath` names one), one per line, in tree order.
 const copyMarked = async (
   $: EngineInterface,
@@ -1217,7 +1217,7 @@ const loadPreview = async (
   }
   try {
     const stat = await $.fs.stat(row.path)
-    // The engine picks the renderer; `isRaw` (`v`) shows a rendered one's source.
+    // The engine picks the renderer; `isRaw` shows a rendered one's source.
     const engine = engineOf(row.name, customEngines)
     // A custom engine reads the file itself: no size cap here.
     if (stat.kind === 'file' && typeof engine === 'object') {
@@ -1542,7 +1542,7 @@ const focusOn = ($: EngineInterface, key: string, tries = 4): void => {
   })
 }
 
-// `new (n)`: the name field on the interactive line, for a file in `dir`. Unsaved
+// `new`: the name field on the interactive line, for a file in `dir`. Unsaved
 // text in the editor asks first; the bar's save or discard opens it then.
 const openNaming = async ($: EngineInterface, dir: string): Promise<void> => {
   if (await guarded($, 'new', dir)) return
@@ -1658,7 +1658,7 @@ const entriesOf = (all: readonly Facts[]): string => {
 const isEditIn = (edit: Edit | undefined, path: string): edit is Edit =>
   edit !== undefined && (edit.path === path || edit.path.startsWith(path + '/'))
 
-// `delete (d)`: the bar names the target; nothing is removed until its `delete`.
+// `delete`: the bar names the target; nothing is removed until its `delete`.
 const askDelete = async ($: EngineInterface, path: string): Promise<void> => {
   naming = undefined
   deleteFacts.clear()
@@ -1666,7 +1666,7 @@ const askDelete = async ($: EngineInterface, path: string): Promise<void> => {
   $.ui.invalidate('ui.render')
 }
 
-// `delete (d)` with 2+ marked: the bar asks about the marks as they are now
+// `delete` with 2+ marked: the bar asks about the marks as they are now
 // (a later mark does not change what it removes).
 const askDeleteMany = async ($: EngineInterface, paths: readonly string[]): Promise<void> => {
   naming = undefined
@@ -2440,7 +2440,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // The wheel moves the window off the selection, so it only clamps here.
     const win = windowOf(rows, -1, treeRows, state.offset)
     const current = index < 0 ? undefined : rows[index]
-    // `mark (m)` toggles the cursor's row, else the selection's.
+    // `mark` toggles the cursor's row, else the selection's.
     const markAt = [state.cursor, state.selected].find(path => path !== undefined && rows.some(row => row.path === path))
     const isUnity = state.mode === 'unity' && !isNotUnity
     // While 2+ rows are marked Preview lists them, the paths from the root.
@@ -2800,9 +2800,9 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     // A small Button on a frame's top border, as the title: its own label on a
     // tinted fill (accent for the main action, the selection fill otherwise).
-    const edgeButton = (key: string, label: string, isMain: boolean, onPress: () => void, hotkey?: string) => (
+    const edgeButton = (key: string, label: string, isMain: boolean, onPress: () => void) => (
       <Box key={key + ':chrome'} backgroundColor={isMain ? onDefaultFg(t.accent) : sel}>
-        <Button key={key} plain label={' ' + label + ' '} hotkey={hotkey} onPress={onPress} />
+        <Button key={key} plain label={' ' + label + ' '} onPress={onPress} />
       </Box>
     )
 
@@ -2822,9 +2822,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       </Box>
     )
 
-    // While the sheet is up the panel's own Buttons do nothing: their hotkeys
-    // stay bound, so the key is taken here (a key no Button takes would land
-    // in the prompt and hand it the keyboard), and a press is dropped.
+    // While the sheet is up the panel's own Buttons do nothing: a press is dropped.
     const asleep =
       <A extends unknown[]>(act: (...args: A) => unknown) =>
       (...args: A): void => {
@@ -2836,8 +2834,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       label: string,
       variant: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger',
       onPress: () => void,
-      hotkey?: string,
-    ) => Btn(elements, t, { key, label, variant, size: 'sm', hotkey, surface, onPress: asleep(onPress) })
+    ) => Btn(elements, t, { key, label, variant, size: 'sm', surface, onPress: asleep(onPress) })
 
     return (
       <Box flexDirection="column" width="100%" minHeight={e.props.scroll.bodyRows} backgroundColor={t.bg}>
@@ -2858,7 +2855,6 @@ export const register = (on: On, options?: PluginOptions): void => {
               { id: 'unity', label: 'Unity' },
             ],
             selected: state.mode,
-            hotkeys: { files: 'f', unity: 'u' },
             onSelect: asleep((id: string) => (id === state.mode || !isMode(id) ? undefined : void setMode($, id))),
           })}
           {isNotUnity && <Text color={t.muted}>not a Unity project</Text>}
@@ -2882,14 +2878,13 @@ export const register = (on: On, options?: PluginOptions): void => {
               if (state.marked !== undefined) void update($, explorer, s => ({ ...s, marked: undefined }))
               $.ui.invalidate('ui.render')
             },
-            'r',
           )}
           {canEdit &&
             edit === undefined &&
             !multi &&
             (preview?.type === 'code' || preview?.type === 'markdown') &&
             preview.generated !== true &&
-            btn('edit', 'edit', 'secondary', () => void startEdit($, preview.path), 'e')}
+            btn('edit', 'edit', 'secondary', () => void startEdit($, preview.path))}
           {canNew &&
             !multi &&
             btn(
@@ -2907,13 +2902,12 @@ export const register = (on: On, options?: PluginOptions): void => {
                       ? parentOf(state.selected)
                       : root,
                 ),
-              'n',
             )}
-          {markAt !== undefined && btn('mark', 'mark', 'ghost', () => void markToggle($, markAt), 'm')}
+          {markAt !== undefined && btn('mark', 'mark', 'ghost', () => void markToggle($, markAt))}
           {multi
-            ? btn('copy', 'copy paths', 'ghost', () => void copyMarked($, surface), 'y')
+            ? btn('copy', 'copy paths', 'ghost', () => void copyMarked($, surface))
             : current !== undefined &&
-              btn('copy', 'copy path', 'ghost', () => void copyPath($, state.cursor ?? current.path, surface), 'y')}
+              btn('copy', 'copy path', 'ghost', () => void copyPath($, state.cursor ?? current.path, surface))}
           {(multi || current !== undefined) &&
             !isAsking &&
             btn(
@@ -2921,7 +2915,6 @@ export const register = (on: On, options?: PluginOptions): void => {
               'delete',
               'danger',
               () => void (multi ? askDeleteMany($, marksOf(state)) : current !== undefined && askDelete($, current.path)),
-              'd',
             )}
         </Box>
         {/* The interactive line, only while something asks: the question or
@@ -3206,7 +3199,7 @@ export const register = (on: On, options?: PluginOptions): void => {
               </Box>
             ))}
           {image === undefined && md === undefined && hbar('hb:preview', previewWide, previewVisible, previewLeft, previewInner - 1)}
-          {/* A rendered engine's source view (`v`) and back. */}
+          {/* A rendered engine's source view and back. */}
           {hasView && (
             <Box position="absolute" top={0} right={1} flexDirection="row">
               {edgeButton(
@@ -3216,7 +3209,6 @@ export const register = (on: On, options?: PluginOptions): void => {
                 asleep(() =>
                   void update($, explorer, s => ({ ...s, previewRaw: s.previewRaw === true ? undefined : true, previewOffset: 0, previewLeft: 0 })),
                 ),
-                'v',
               )}
             </Box>
           )}

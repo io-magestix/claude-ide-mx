@@ -447,7 +447,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'item:/proj/src/main.ts' })).toBeDefined()
 
     // `copy path` (y) copies the cursor's row
-    expect((await ui.find({ key: 'copy' }))?.props.hotkey).toBe('y')
+    expect(await ui.find({ key: 'copy' })).toBeDefined()
     await ui.press({ key: 'copy' })
     expect(copied.at(-1)).toBe('src')
   })
@@ -613,8 +613,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     })
 
     expect(await isActiveTab(ui, surface, 'files')).toBe(true)
-    expect((await ui.find({ key: 'tab:files' }))?.props.hotkey).toBe('f')
-    expect((await ui.find({ key: 'tab:unity' }))?.props.hotkey).toBe('u')
+    expect(await ui.find({ key: 'tab:files' })).toBeDefined()
+    expect(await ui.find({ key: 'tab:unity' })).toBeDefined()
     await ui.press({ key: 'tab:unity' })
     expect(store.get('explorer.mode:' + CWD)).toBe('unity')
     expect(await isActiveTab(ui, surface, 'unity')).toBe(true)
@@ -910,16 +910,15 @@ for (const surface of ['terminal', 'desktop'] as const) {
     TREE['/proj'] = (TREE['/proj'] ?? []).filter(x => x.name !== 'fresh.txt')
   })
 
-  test(`${surface}: hotkeys f, u and r are set and work`, async ($, on) => {
+  test(`${surface}: no Button carries a hotkey; the panel tabs switch by click`, async ($, on) => {
     mock.store(on)
     fake(on)
     await $.session.start(start(surface))
     const ui = await mount($)
 
     expect(await ui.find({ key: 'mode' })).toBeUndefined()
-    expect((await ui.find({ key: 'tab:files' }))?.props.hotkey).toBe('f')
-    expect((await ui.find({ key: 'tab:unity' }))?.props.hotkey).toBe('u')
-    expect((await ui.find({ key: 'refresh' }))?.props.hotkey).toBe('r')
+    expect(await ui.find({ key: 'refresh' })).toBeDefined()
+    for (const b of await ui.findAll({ type: 'Button' })) expect(b.props.hotkey).toBeUndefined()
     expect(await isActiveTab(ui, surface, 'files')).toBe(true)
     expect(await isActiveTab(ui, surface, 'unity')).toBe(false)
     await ui.press({ key: 'tab:unity' })
@@ -1206,7 +1205,7 @@ const editing = async (
     viewport: VIEWPORT,
   })
   await ui.press({ key: 'row:' + root + '/' + Object.keys(files)[0] })
-  expect((await ui.find({ key: 'edit' }))?.props.hotkey).toBe('e')
+  expect(await ui.find({ key: 'edit' })).toBeDefined()
   await ui.press({ key: 'edit' })
   await ui.resize({ columns: 60, rows: 10, in: 'editor' })
   // Lets the client's posts and the hook's answers settle.
@@ -1597,7 +1596,7 @@ const naming = async ($: Engine, on: On, surface: 'terminal' | 'desktop', root: 
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: new opens an empty dirty editor, the first save creates the file`, async ($, on) => {
     const { ui, settle } = await naming($, on, surface, '/nf1-' + surface)
-    expect((await ui.find({ key: 'new' }))?.props.hotkey).toBe('n')
+    expect(await ui.find({ key: 'new' })).toBeDefined()
     await ui.press({ key: `row:/nf1-${surface}/src` })
     await ui.press({ key: 'new' })
     const field = await ui.find({ key: 'new-file' })
@@ -1762,7 +1761,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // Nothing selected: no row to delete (the root never is one).
     expect(await ui.find({ key: 'delete' })).toBeUndefined()
     await ui.press({ key: `row:${root}/a.txt` })
-    expect((await ui.find({ key: 'delete' }))?.props.hotkey).toBe('d')
+    expect(await ui.find({ key: 'delete' })).toBeDefined()
 
     await ui.press({ key: 'delete' })
     expect(await bar()).toBe('Delete a.txt?')
@@ -2074,7 +2073,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const t = THEMES.claude
 
     await ui.press({ key: 'row:/proj/notes.txt' })
-    expect((await ui.find({ key: 'delete' }))?.props.hotkey).toBe('d')
+    expect(await ui.find({ key: 'delete' })).toBeDefined()
     await ui.press({ key: 'delete' })
     expect((await ui.find({ key: 'header:ask' }))?.props.backgroundColor).toBe(t.surface)
     expect((await ui.find({ type: 'Text', text: /^Delete / }))?.props.color).toBe(t.danger)
@@ -2105,7 +2104,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   const mountPane = ($: Engine, requestId: 'ide-explorer' | 'ide-git') =>
     $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId, viewport: VIEWPORT })
 
-  test(`${surface}: the ⚙ (hotkey s) opens Settings; a theme applies to both panels at once, cancel puts it back`, async ($, on) => {
+  test(`${surface}: the ⚙ opens Settings; a theme applies to both panels at once, cancel puts it back`, async ($, on) => {
     const store = settingsStore(on)
     fake(on)
     await $.session.start(start(surface))
@@ -2113,7 +2112,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const git = await mountPane($, 'ide-git')
     const paints = async (pane: Pane, bg: string) => (await pane.findAll({ type: 'Box' })).some(box => box.props.backgroundColor === bg)
 
-    expect((await ui.find({ key: 'settings' }))?.props.hotkey).toBe('s')
+    expect(await ui.find({ key: 'settings' })).toBeDefined()
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
@@ -2146,7 +2145,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await paints(git, THEMES.dracula.bg)).toBe(true)
   })
 
-  test(`${surface}: while the sheet is up the panel's Buttons sleep: their hotkeys stay bound, a press does nothing`, async ($, on) => {
+  test(`${surface}: while the sheet is up the panel's Buttons sleep: a press does nothing`, async ($, on) => {
     settingsStore(on)
     fake(on)
     await $.session.start(start(surface))
@@ -2154,16 +2153,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await isActiveTab(ui, surface, 'files')).toBe(true)
 
     await ui.press({ key: 'settings' })
-    // still bound (so the key stays with the pane, not the prompt)
-    expect((await ui.find({ key: 'tab:unity' }))?.props.hotkey).toBe('u')
-    expect((await ui.find({ key: 'refresh' }))?.props.hotkey).toBe('r')
     await ui.press({ key: 'tab:unity' })
     await ui.press({ key: 'new' })
     expect(await isActiveTab(ui, surface, 'files')).toBe(true)
     expect(await ui.find({ key: 'new-file' })).toBeUndefined()
     expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
 
-    // `s` closes it, and the Buttons wake
+    // the ⚙ closes it, and the Buttons wake
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
     await ui.press({ key: 'tab:unity' })
@@ -2460,7 +2456,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'row:/proj/src/main.ts' })
     await ui.post({ hit: 'name', ctrl: true }, { in: 'item:/proj/out.log' })
     await ui.post({ hit: 'mark' }, { in: 'item:/proj/notes.txt' })
-    expect((await ui.find({ key: 'copy' }))?.props.hotkey).toBe('y')
+    expect(await ui.find({ key: 'copy' })).toBeDefined()
     await ui.press({ key: 'copy' })
     // tree order, named from the repo toplevel
     expect(copied).toEqual(['src/main.ts\nnotes.txt\nout.log'])
@@ -2561,7 +2557,7 @@ for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
     const { ui } = await marking($, on, surface)
     expect(await ui.find({ key: 'mark' })).toBeUndefined()
     await ui.press({ key: 'row:/proj/notes.txt' })
-    expect((await ui.find({ key: 'mark' }))?.props.hotkey).toBe('m')
+    expect(await ui.find({ key: 'mark' })).toBeDefined()
     // the arrow moves the cursor to src
     if (surface === 'vscode') await ui.press({ key: 'arrow:/proj/src' })
     else await (ui as unknown as Pane).post({ hit: 'arrow' }, { in: 'item:/proj/src' })
@@ -2685,11 +2681,10 @@ test('desktop: an SVG draws as Svg, a PNG as metadata', async ($, on) => {
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`${surface}: v flips an SVG to its source in the code preview and back`, async ($, on) => {
+  test(`${surface}: the view chip flips an SVG to its source in the code preview and back`, async ($, on) => {
     const { ui } = await images($, on, surface, ['magick'])
     await ui.press({ key: 'row:/img/logo.svg' })
     const view = await ui.find({ key: 'preview:view' })
-    expect(view?.props.hotkey).toBe('v')
     expect(view?.props.label).toBe(' source ')
     expect(await ui.find({ type: 'Code' })).toBeUndefined()
     expect(await ui.find({ key: 'edit' })).toBeUndefined()
@@ -3135,10 +3130,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await shownRows(ui, rows)).toEqual(windowRows(rows, rows.length - MD_ROWS))
   })
 
-  test(`${surface}: v flips rendered markdown to its source as Code and back`, async ($, on) => {
+  test(`${surface}: the view chip flips rendered markdown to its source as Code and back`, async ($, on) => {
     const { ui } = await markdowns($, on, surface)
     const view = await ui.find({ key: 'preview:view' })
-    expect(view?.props.hotkey).toBe('v')
     expect(view?.props.label).toBe(' source ')
     await ui.press({ key: 'preview:view' })
     const code = await ui.find({ type: 'Code' })

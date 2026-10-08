@@ -491,9 +491,9 @@ test('fitStart cuts from the start', () => {
 test('graphColumns: wide adds date and author, narrow drops author, subject takes the rest', () => {
   const wide = graphColumns(150, 3)
   expect(wide).toMatchObject({ author: 16, date: 10 })
-  expect(wide.subject).toBe(150 - 3 - 10 - 5 - 11 - 17)
+  expect(wide.subject).toBe(150 - 3 - 10 - DIFF_COLS - 11 - 17)
   expect(graphColumns(79, 3)).toMatchObject({ author: 0, date: 10 })
-  expect(graphColumns(60, 3, false)).toEqual({ subject: 60 - 3 - 10 - 5, author: 0, date: 0 })
+  expect(graphColumns(60, 3, false)).toEqual({ subject: 60 - 3 - 10 - DIFF_COLS, author: 0, date: 0 })
   expect(graphColumns(10, 5).subject).toBe(4)
 })
 

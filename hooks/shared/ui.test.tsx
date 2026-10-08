@@ -43,7 +43,7 @@ test('pure helpers', () => {
 
 test('Btn terminal: keyed chrome around a plain Button, hover set', () => {
   const press = () => {}
-  const tree = Btn(el, t, { key: 'go', label: 'Go', variant: 'primary', onPress: press, hotkey: 'g' })
+  const tree = Btn(el, t, { key: 'go', label: 'Go', variant: 'primary', onPress: press })
   expect(tree.props.key).toBe('go:chrome')
   expect(tree.props.backgroundColor).toBe(onDefaultFg(t.accent))
   expect(tree.props.borderStyle).toBe('round')
@@ -52,7 +52,6 @@ test('Btn terminal: keyed chrome around a plain Button, hover set', () => {
   expect(button.props.key).toBe('go')
   expect(button.props.plain).toBe(true)
   expect(button.props.label).toBe('Go')
-  expect(button.props.hotkey).toBe('g')
   expect(button.props.onPress).toBe(press)
 })
 
@@ -113,7 +112,6 @@ test('Header: theme Button cycles to the next theme', () => {
   let got = ''
   const tree = Header(el, t, { title: 'T', themeName: 'nord', onTheme: (n: string) => (got = n) })
   const b = find(tree, x => x.type === 'Button' && x.props.key === 'theme')
-  expect(b.props.hotkey).toBe('t')
   b.props.onPress()
   expect(got).toBe('dracula')
 })

@@ -7,7 +7,7 @@
  * - LIVE-VERIFIED (real terminal): a plain Button of blank label laid absolutely over a colored
  *   Text paints its spaces over the Text, so the control draws empty; a Text drawn over the
  *   Button shows but swallows the click. So terminal controls use the Button's OWN label:
- *   keyed Box chrome (backgroundColor, hover) > plain Button (label, hotkey, press). A Button
+ *   keyed Box chrome (backgroundColor, hover) > plain Button (label, press). A Button
  *   has no color prop: its label is the terminal's default foreground, assumed light
  *   (`#e6e6e6`). Fills are therefore darkened by `onDefaultFg` (WCAG contrast >= 4.5 against
  *   that foreground); outline/ghost/link have no fill on a dark theme. On a light theme (bg
@@ -146,7 +146,6 @@ export type BtnProps = {
   size?: 'sm' | 'md' // sm: one row; md: three rows with a round border
   icon?: string
   pill?: boolean
-  hotkey?: string
   onPress: () => void
   key: string
   surface?: RenderSurface
@@ -161,7 +160,7 @@ export function Btn(el: ElementTable, t: Theme, p: BtnProps) {
   const variant = p.variant ?? 'secondary'
   const text = (p.icon !== undefined ? p.icon + ' ' : '') + p.label
   if (!isTerminal(p.surface)) {
-    return <Button key={p.key} label={text} hotkey={p.hotkey} variant={variant === 'primary' ? 'primary' : variant === 'secondary' ? 'secondary' : undefined} onPress={p.onPress} />
+    return <Button key={p.key} label={text} variant={variant === 'primary' ? 'primary' : variant === 'secondary' ? 'secondary' : undefined} onPress={p.onPress} />
   }
 
   const light = chromeBg(t)
@@ -177,7 +176,7 @@ export function Btn(el: ElementTable, t: Theme, p: BtnProps) {
   const bordered = !sm && fill.border !== undefined && !p.pill
   const hoverBorderColor = bordered ? (variant === 'outline' ? t.focus : variant === 'danger' ? undefined : fill.hover) ?? fill.border : undefined
   const label = (
-    <Button key={p.key} plain label={text} hotkey={p.hotkey} hover={{ underline: true }} onPress={p.onPress} />
+    <Button key={p.key} plain label={text} hover={{ underline: true }} onPress={p.onPress} />
   )
   // A hover prop set to undefined is refused ("borderColor is a undefined"): leave the key out.
   const hover =
@@ -282,7 +281,6 @@ export type TabsProps = {
   onSelect: (id: string) => void
   style?: 'underline' | 'pill'
   surface?: RenderSurface
-  hotkeys?: Record<string, string> // tab id → hotkey
   keyPrefix?: string // Button keys are `<prefix>:<id>`, default `tab`; unique per drawing
 }
 
@@ -294,7 +292,7 @@ export function Tabs(el: ElementTable, t: Theme, p: TabsProps) {
     return (
       <Box flexDirection="row" gap={1}>
         {p.tabs.map(tab => (
-          <Button key={pre + ':' + tab.id} label={tab.label} hotkey={p.hotkeys?.[tab.id]} variant={tab.id === p.selected ? 'primary' : 'secondary'} onPress={() => p.onSelect(tab.id)} />
+          <Button key={pre + ':' + tab.id} label={tab.label} variant={tab.id === p.selected ? 'primary' : 'secondary'} onPress={() => p.onSelect(tab.id)} />
         ))}
       </Box>
     )
@@ -307,7 +305,7 @@ export function Tabs(el: ElementTable, t: Theme, p: TabsProps) {
 
           return (
             <Box key={pre + ':' + tab.id + ':chrome'} backgroundColor={on ? onDefaultFg(t.accent) : undefined} paddingX={1} hover={on ? undefined : { backgroundColor: onDefaultFg(t.surfaceHover) }}>
-              <Button key={pre + ':' + tab.id} plain label={tab.label} hotkey={p.hotkeys?.[tab.id]} onPress={() => p.onSelect(tab.id)} />
+              <Button key={pre + ':' + tab.id} plain label={tab.label} onPress={() => p.onSelect(tab.id)} />
             </Box>
           )
         })}
@@ -324,7 +322,7 @@ export function Tabs(el: ElementTable, t: Theme, p: TabsProps) {
         return (
           <Box key={pre + ':' + tab.id + ':chrome'} flexDirection="column" hover={on ? undefined : { backgroundColor: onDefaultFg(t.surface) }}>
             <Box paddingX={2} backgroundColor={chromeBg(t)}>
-              <Button key={pre + ':' + tab.id} plain label={tab.label} hotkey={p.hotkeys?.[tab.id]} hover={{ underline: true }} onPress={() => p.onSelect(tab.id)} />
+              <Button key={pre + ':' + tab.id} plain label={tab.label} hover={{ underline: true }} onPress={() => p.onSelect(tab.id)} />
             </Box>
             <Text color={on ? t.accent : t.border}>{(on ? '━' : '─').repeat(w)}</Text>
           </Box>
@@ -406,7 +404,7 @@ export function Skeleton(el: ElementTable, t: Theme, p: { width?: number; rows?:
 
 export type HeaderProps = { title: string; themeName: ThemeName; onTheme: (next: ThemeName) => void; surface?: RenderSurface }
 
-/** Pane title + a cycling theme Button (key `theme`, hotkey `t`). */
+/** Pane title + a cycling theme Button (key `theme`). */
 export function Header(el: ElementTable, t: Theme, p: HeaderProps) {
   const { Box, Text } = el
   const next = THEME_NAMES[(THEME_NAMES.indexOf(p.themeName) + 1) % THEME_NAMES.length] as ThemeName
@@ -415,7 +413,7 @@ export function Header(el: ElementTable, t: Theme, p: HeaderProps) {
     <Box key="header" flexDirection="column">
       <Box flexDirection="row" justifyContent="space-between" alignItems="center">
         <Text bold color={t.text}>{p.title}</Text>
-        {Btn(el, t, { key: 'theme', label: `theme: ${p.themeName} ▾`, variant: 'outline', size: 'sm', hotkey: 't', onPress: () => p.onTheme(next), surface: p.surface })}
+        {Btn(el, t, { key: 'theme', label: `theme: ${p.themeName} ▾`, variant: 'outline', size: 'sm', onPress: () => p.onTheme(next), surface: p.surface })}
       </Box>
       {Separator(el, t)}
     </Box>
@@ -425,14 +423,14 @@ export function Header(el: ElementTable, t: Theme, p: HeaderProps) {
 /* ---- Form components (A3). Pure, same style; Button keys are the `key` given, once per drawing. ---- */
 
 /** Terminal: a colored glyph Text beside a plain Button carrying the label; native Button elsewhere. */
-function Pressable(el: ElementTable, t: Theme, p: { key: string; glyph: string; color: string; label: string; hotkey?: string; onPress: () => void; surface?: RenderSurface }) {
+function Pressable(el: ElementTable, t: Theme, p: { key: string; glyph: string; color: string; label: string; onPress: () => void; surface?: RenderSurface }) {
   const { Box, Text, Button } = el
-  if (!isTerminal(p.surface)) return <Button key={p.key} label={`${p.glyph} ${p.label}`} hotkey={p.hotkey} onPress={p.onPress} />
+  if (!isTerminal(p.surface)) return <Button key={p.key} label={`${p.glyph} ${p.label}`} onPress={p.onPress} />
 
   return (
     <Box key={p.key + ':chrome'} flexDirection="row" flexShrink={0} backgroundColor={chromeBg(t)}>
       <Text color={p.color}>{p.glyph}</Text>
-      <Button key={p.key} plain label={' ' + p.label} hotkey={p.hotkey} hover={{ underline: true }} onPress={p.onPress} />
+      <Button key={p.key} plain label={' ' + p.label} hover={{ underline: true }} onPress={p.onPress} />
     </Box>
   )
 }
@@ -559,7 +557,6 @@ export type ModalBtnProps = {
   label: string
   variant: 'ghost' | 'primary' | 'danger'
   onPress: () => void
-  hotkey?: string
   dismiss?: boolean // role: 'dismiss'
   autoFocus?: boolean
   surface?: RenderSurface
@@ -573,7 +570,6 @@ export function ModalBtn(el: ElementTable, t: Theme, p: ModalBtnProps) {
       <Button
         key={p.key}
         label={p.label}
-        hotkey={p.hotkey}
         variant={p.variant === 'primary' ? 'primary' : undefined}
         role={p.dismiss === true ? 'dismiss' : undefined}
         autoFocus={p.autoFocus === true ? true : undefined}
@@ -585,7 +581,7 @@ export function ModalBtn(el: ElementTable, t: Theme, p: ModalBtnProps) {
 
   return (
     <Box key={p.key + ':chrome'} backgroundColor={bg} paddingX={1} hover={{ backgroundColor: bg ?? onDefaultFg(t.surfaceHover) }}>
-      <Button key={p.key} plain label={p.label} hotkey={p.hotkey} role={p.dismiss === true ? 'dismiss' : undefined} autoFocus={p.autoFocus === true ? true : undefined} onPress={p.onPress} />
+      <Button key={p.key} plain label={p.label} role={p.dismiss === true ? 'dismiss' : undefined} autoFocus={p.autoFocus === true ? true : undefined} onPress={p.onPress} />
     </Box>
   )
 }
