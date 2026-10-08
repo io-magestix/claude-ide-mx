@@ -606,6 +606,10 @@ export const remoteSummary = (
   return `git ${action}: ${exitCode === 0 ? '' : 'failed: '}${detail}`
 }
 
+// The branch HEAD names, also before the first commit (where `rev-parse
+// --abbrev-ref HEAD` fails); fails when detached and outside a repo.
+export const headNameArgv = (): string[] => ['git', 'symbolic-ref', '--short', '-q', 'HEAD']
+
 export const statusArgv = (): string[] => [
   'git',
   'status',

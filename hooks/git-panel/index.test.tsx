@@ -1897,3 +1897,24 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
   })
 }
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`${surface}: before the first commit the footer names the branch, not "detached"`, async ($, on) => {
+    mock.store(on)
+    fake(on, [], true, LOG, { name: 'main' }, STATUS, 0, argv => {
+      const sub = argv[1]
+      if (sub === 'for-each-ref') return result('')
+      if (sub === 'log') return result('', 128, 'fatal: your current branch does not have any commits yet\n')
+      if (sub === 'rev-parse' && argv.includes('--abbrev-ref')) return result('', 128, "fatal: ambiguous argument 'HEAD'\n")
+      if (sub === 'symbolic-ref') return result('trunk\n')
+
+      return undefined
+    })
+    await $.session.start(start(surface))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: props(120), requestId: 'ide-git', viewport: VIEWPORT })
+
+    expect(await ui.find({ type: 'Text', text: 'trunk' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'detached' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '(no commits)' })).toBeDefined()
+  })
+}

@@ -20,6 +20,7 @@ export const DEFAULTS = {
   gitTab: 'overview' as 'overview' | 'graph' | 'changelog',
   gitLimit: 200,
   changeView: 'list' as 'list' | 'tree',
+  layout: 'split' as 'tabs' | 'split',
 } as const
 
 const oneOf = <T extends string>(value: unknown, all: readonly T[]): T | undefined =>
@@ -44,6 +45,8 @@ export const settingsOf = (raw: unknown): SettingsState | undefined => {
   if (typeof r.gitLimit === 'number' && Number.isInteger(r.gitLimit) && r.gitLimit > 0) out.gitLimit = r.gitLimit
   const changeView = oneOf(r.changeView, ['list', 'tree'] as const)
   if (changeView !== undefined) out.changeView = changeView
+  const layout = oneOf(r.layout, ['tabs', 'split'] as const)
+  if (layout !== undefined) out.layout = layout
 
   return out
 }

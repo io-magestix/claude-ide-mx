@@ -69,6 +69,13 @@ test('settingsOf keeps valid fields only', () => {
   expect(DEFAULTS.theme).toBe('claude')
 })
 
+test('settingsOf keeps a known layout only', () => {
+  expect(settingsOf({ layout: 'split' })).toEqual({ layout: 'split' })
+  expect(settingsOf({ layout: 'tabs' })).toEqual({ layout: 'tabs' })
+  expect(settingsOf({ layout: 'grid' })).toEqual({})
+  expect(DEFAULTS.layout).toBe('split')
+})
+
 test('keysError: none for empty or good text, the first problem otherwise', () => {
   expect(keysError('')).toBeUndefined()
   expect(keysError('{"duplicateLines":"ctrl+shift+d"}')).toBeUndefined()

@@ -11,11 +11,12 @@ export type SettingsState = {
   gitTab?: 'overview' | 'graph' | 'changelog' // Git's panel tab while it has none chosen
   gitLimit?: number // commits per page
   changeView?: 'list' | 'tree' // Change Log's Files view while it has none chosen
+  layout?: 'tabs' | 'split' // `tabs`: Explorer and Git as two panes; `split`: one pane, Explorer over Git. Absent is `split`
 }
 
 // The Settings sheet while it is up; session only, never saved.
 export type SettingsUi = {
-  open?: 'ide-explorer' | 'ide-git' // the pane drawing the sheet; absent: closed
+  open?: 'ide-explorer' | 'ide-git' | 'ide-split' // the pane drawing the sheet; absent: closed
   before?: SettingsState // the values when it opened: Cancel puts them back
   keys?: string // the key overrides field as typed; absent: the saved `keys`
   keysError?: string // what is wrong with `keys`; the settings keep the last good text
@@ -42,9 +43,9 @@ export type ExplorerState = {
     version: number // bumped to reload the buffer; chunks and drafts of an older one are dropped
     conflict?: 'disk' | 'changed' // `disk`: a save found the file changed; `changed`: Claude changed it under a dirty buffer
     confirm?: 'select' | 'close' | 'mode' | 'pane' | 'new' // the unsaved-changes bar and what it was asked for
-    pending?: string // the path to select (`new`: the dir to name a file in) once the unsaved-changes bar is answered
+    pending?: string // the path to select (`new`: the dir to name a file in; `pane`: `layout` opens the Settings layout after) once the unsaved-changes bar is answered
   }
-  split?: { tree?: number } // dragged Files width as a fraction of the body; absent is 0.35
+  split?: { tree?: number; panels?: number } // dragged sizes as fractions: Files' width (absent 0.35); the split layout's Explorer height (absent 0.7)
 }
 
 export type GitState = {

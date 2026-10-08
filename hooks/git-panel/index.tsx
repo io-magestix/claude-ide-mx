@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PluginOptions, Register } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, RenderElement } from 'claude-code'
 
 import type { GitState, SettingsState, SettingsUi } from '../../types'
 import { window as windowOf } from '../explorer-panel/tree'
@@ -8,11 +8,13 @@ import { H_THUMB, H_TRACK, scrollbar } from '../shared/scrollbar'
 import { DEFAULTS, SETTINGS_KEY, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
+import { EXPLORER_PANE, GIT_PREFIX, SPLIT_PANE, SPLIT_TITLE, gitKeyOf, prefixKeys, seat, splitColumns } from '../shared/layout'
 import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
 import { glyphColor, lanePalette } from './git-theme'
 import {
   GIT_PANE,
   branchTree,
+  headNameArgv,
   copyTextOf,
   remoteArgv,
   remoteSummary,
@@ -71,6 +73,14 @@ const settingsUi = atom<'ide-panes', 'settingsUi'>(
   {} satisfies SettingsUi,
 )
 const PANE = GIT_PANE
+
+// Where Git is drawn: its own pane (`tabs`) or the split pane's bottom half,
+// its keys prefixed `git/`. Set by each drawing.
+let host: typeof PANE | typeof SPLIT_PANE = PANE
+
+// Moves the keyboard ring onto one of Git's elements, wherever it is drawn.
+const focusGit = ($: EngineInterface, key: string) =>
+  $.ui.focus({ requestId: host, key: host === SPLIT_PANE ? GIT_PREFIX + key : key })
 
 // Each side of a splitter keeps at least this many columns / rows.
 const MIN_COLS = 12
@@ -167,9 +177,28 @@ const resetLayout = async ($: EngineInterface): Promise<void> => {
   await $.ui.toast('Layout reset')
 }
 
+const gitSeesPane = async ($: EngineInterface, id: string): Promise<boolean> =>
+  (await $.ui.panes()).some(pane => pane.id === id)
+
+// Saved; the split layout, chosen on this sheet, is seated now: the Explorer closes
+// first (Git with it), unless its unsaved-changes bar holds it, which then
+// seats the layout once answered.
 const settingsDone = async ($: EngineInterface): Promise<void> => {
-  await $.store.set(SETTINGS_KEY, await read($, settings))
+  const before = (await read($, settingsUi)).before
+  const now = await read($, settings)
+  await $.store.set(SETTINGS_KEY, now)
   await update($, settingsUi, () => ({}))
+  const layout = now.layout ?? DEFAULTS.layout
+  if (layout !== 'split' || layout === (before?.layout ?? DEFAULTS.layout) || host === SPLIT_PANE) return
+  seat.switching = layout
+  try {
+    if (await gitSeesPane($, EXPLORER_PANE)) await $.ui.close({ id: EXPLORER_PANE })
+    if (await gitSeesPane($, EXPLORER_PANE)) return
+  } finally {
+    seat.switching = undefined
+  }
+  if (await gitSeesPane($, PANE)) await $.ui.close({ id: PANE })
+  await $.ui.open({ id: SPLIT_PANE, title: SPLIT_TITLE, focus: true, columns: splitColumns(seat.windowColumns) })
 }
 
 const settingsCancel = async ($: EngineInterface): Promise<void> => {
@@ -205,6 +234,9 @@ const CARD_NAMES = 8
 // Columns of a Commits row's dot and the space after it.
 const DOT_COLS = 2
 let hasHead: boolean | undefined
+// The branch HEAD names when no branch is HEAD (a repo before its first commit);
+// null: detached. Cleared with the caches.
+let unborn: string | null | undefined
 // Diff Preview's body width (Code's gutter + widest body line) for the last
 // diff measured: one entry keyed by the diff string, so a redraw of the same
 // diff (wheel ticks, drags) does not walk the whole, uncapped patch again.
@@ -278,6 +310,7 @@ const clear = (): void => {
   changeCache.clear()
   containsCache.clear()
   hasHead = undefined
+  unborn = undefined
 }
 
 // Calls that threw (the engine aborts a git call when its render is
@@ -478,6 +511,9 @@ const showBranch = async ($: EngineInterface, cwd: string): Promise<void> => {
   let name = (await run($, cwd, ['git', 'rev-parse', '--abbrev-ref', 'HEAD']))?.trim()
   if (name === 'HEAD') {
     name = (await run($, cwd, ['git', 'rev-parse', '--short', 'HEAD']))?.trim()
+  } else if (name === undefined) {
+    // A repo before its first commit still names its branch.
+    name = (await run($, cwd, headNameArgv()))?.trim()
   }
   const text = name === undefined || name === '' ? undefined : '⎇ ' + name
   if (text === shown) return
@@ -610,8 +646,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     return ran
   })
 
-  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
-    const element = e.element
+  on('ui.focus', { requestId: [PANE, SPLIT_PANE] }, async ($, e, next) => {
+    // In the split pane only Git's elements (keys `git/...`) are this hook's.
+    const element = e.requestId === SPLIT_PANE ? gitKeyOf(e.element) : e.element
     if (element !== undefined && element.startsWith('commit:')) {
       const sha = element.slice('commit:'.length)
       const state = await gitNow($)
@@ -681,7 +718,7 @@ export const register = (on: On, options?: PluginOptions): void => {
   // Wheel: scrolls the section under the pointer. Keys: an arrow moves the
   // commit selection, a page key scrolls the details. The engine's own window
   // is never used, so the hook always answers `{}` without `next`.
-  on('ui.scroll', { requestId: PANE }, async ($, e) => {
+  on('ui.scroll', { requestId: [PANE, SPLIT_PANE] }, async ($, e) => {
     const state = await gitNow($)
     // The diff view replaces whichever tab it was opened from.
     const isDiff = state.diff !== undefined
@@ -689,7 +726,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     const isGraph = !isDiff && tabOf(state) === 'graph'
     const isFiles = isDiff || isChanges
     const filesPart = isDiff ? 'diffFileOffset' : 'changeOffset'
-    const pointer = e.pointer
+    // In the split pane rows count from the top of Git's half.
+    const pointer =
+      e.pointer !== undefined && e.requestId === SPLIT_PANE ? { ...e.pointer, row: e.pointer.row - seat.gitTop } : e.pointer
     if (pointer !== undefined) {
       // Change Log and the diff view: Files | Diff Preview. Graph: the list
       // over Info. Overview: Branches | Commits over Info.
@@ -737,7 +776,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             ? { ...s, diffFile: path, diffFileOffset: win.offset, detailOffset: 0, detailLeft: 0 }
             : { ...s, change: path, changeOffset: win.offset, detailOffset: 0, detailLeft: 0 },
         )
-        await $.ui.focus({ requestId: PANE, key: (isDiff ? 'dfile:' : 'change:') + path })
+        await focusGit($, (isDiff ? 'dfile:' : 'change:') + path)
       }
     } else if (Math.abs(e.by) === 1) {
       const lines = graphCache.get(state.ref + '\0' + state.limit) ?? []
@@ -757,7 +796,7 @@ export const register = (on: On, options?: PluginOptions): void => {
           infoOffset: 0,
           infoLeft: 0,
         }))
-        await $.ui.focus({ requestId: PANE, key: 'commit:' + sha })
+        await focusGit($, 'commit:' + sha)
       }
     } else if (isFiles) {
       const was = state.detailOffset ?? 0
@@ -781,12 +820,15 @@ export const register = (on: On, options?: PluginOptions): void => {
   })
 
   // A scrollbar dragged: the window moves, the selection stays (as the wheel).
-  on('ui.message', { requestId: PANE }, async ($, e) => {
+  on('ui.message', { requestId: [PANE, SPLIT_PANE] }, async ($, e) => {
+    // In the split pane the Explorer's hook passes on only Git's keys (`git/...`).
+    const element = e.requestId === SPLIT_PANE ? gitKeyOf(e.element) : e.element
+    if (element === undefined) return {}
     const data = e.data as { offset?: unknown; start?: unknown; delta?: unknown; done?: unknown } | null
-    if (e.element === 'dots' || e.element === 'shas') {
+    if (element === 'dots' || element === 'shas') {
       // Only the window drawn for this Client maps its rows.
       const shaAt = (y: unknown): string | undefined =>
-        e.element === commitWindow.element && typeof y === 'number' && Number.isInteger(y)
+        element === commitWindow.element && typeof y === 'number' && Number.isInteger(y)
           ? commitWindow.shas[y]
           : undefined
       const message = e.data as { hover?: unknown; press?: unknown } | null
@@ -802,7 +844,7 @@ export const register = (on: On, options?: PluginOptions): void => {
           infoLeft: s.selected === sha ? s.infoLeft : 0,
         }))
         $.ui.invalidate('ui.render')
-        await $.ui.focus({ requestId: PANE, key: 'commit:' + sha })
+        await focusGit($, 'commit:' + sha)
 
         return {}
       }
@@ -818,11 +860,11 @@ export const register = (on: On, options?: PluginOptions): void => {
 
       return {}
     }
-    if (e.element.startsWith('bitem:')) {
+    if (element.startsWith('bitem:')) {
       // A Branches row's Client (branch-client.tsx): the arrow opens or closes
       // a folder, the name selects a branch (a folder's name does nothing), a
       // double-click copies the full ref or the folder's prefix.
-      const key = e.element.slice('bitem:'.length)
+      const key = element.slice('bitem:'.length)
       const hit = (e.data as { hit?: unknown } | null)?.hit
       const state = await read($, git)
       const branches = await branchesOf($, await $.session.root())
@@ -840,7 +882,7 @@ export const register = (on: On, options?: PluginOptions): void => {
 
       return {}
     }
-    const seam = SEAMS[e.element as keyof typeof SEAMS]
+    const seam = SEAMS[element as keyof typeof SEAMS]
     if (seam !== undefined) {
       // A splitter dragged: the section's new size is where it started plus
       // the pointer's travel, kept as a fraction so a resize keeps it.
@@ -874,7 +916,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       'hb:info': ['infoLeft', view.infoLeftMax],
       'hb:details': ['detailLeft', view.detailLeftMax],
     } as const
-    const part = parts[e.element as keyof typeof parts]
+    const part = parts[element as keyof typeof parts]
     if (part === undefined) return {}
     const value = clamp(Math.round(to), part[1])
     await update($, git, s => ({ ...s, [part[0]]: value }))
@@ -883,10 +925,16 @@ export const register = (on: On, options?: PluginOptions): void => {
     return {}
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  // Its own pane, or the split pane's rows below the seam (asked for by the
+  // Explorer's hook, above this one), there with every key prefixed `git/`.
+  on('ui.render', { component: 'Pane', requestId: [PANE, SPLIT_PANE] }, async ($, e) => {
     const elements = $.ui.resolve(e)
     const { Box, Text, Button, Code } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
+    host = e.requestId === SPLIT_PANE ? SPLIT_PANE : PANE
+    const isSplit = host === SPLIT_PANE
+    const bodyRows = isSplit ? seat.gitRows : e.props.scroll.bodyRows
+    const own = (tree: RenderElement): RenderElement => (isSplit ? prefixKeys(tree, GIT_PREFIX) : tree)
     // The hash Client (dots and hashes, and so the hover card and the hash
     // press) where a Client is drawn; elsewhere the hash is a Button.
     const hasDots = Client !== undefined && (e.surface === 'terminal' || e.surface === 'desktop')
@@ -901,7 +949,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     const asleep =
       <A extends unknown[]>(act: (...args: A) => unknown) =>
       (...args: A): void => {
-        if (sheet.open !== PANE) void act(...args)
+        if (sheet.open !== host) void act(...args)
       }
     const color = await read($, sessionColor)
     const t = resolveTheme(settingsNow, color)
@@ -912,14 +960,17 @@ export const register = (on: On, options?: PluginOptions): void => {
     const lanes = lanePalette(t)
     const surface = e.surface
     // The Settings ⚙ (the title row's right end, under the pane's close mark)
-    // and its sheet, drawn last over the panel below the title row.
-    const settingsButton = SettingsButton(elements, t, { surface, isOpen: sheet.open === PANE, onPress: () => void toggleSettings($) })
+    // and its sheet, drawn last over the panel below the title row. The split
+    // pane has one ⚙, the Explorer's, and its sheet covers both halves.
+    const settingsButton = isSplit
+      ? undefined
+      : SettingsButton(elements, t, { surface, isOpen: sheet.open === PANE, onPress: () => void toggleSettings($) })
     const settingsSheet =
-      sheet.open === PANE
+      !isSplit && sheet.open === PANE
         ? SettingsSheet(elements, t, {
             surface,
             cols: e.props.bodyColumns,
-            rows: e.props.scroll.bodyRows,
+            rows: bodyRows,
             settings: settingsNow,
             keymap: settingsNow.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains'),
             keys: sheet.keys ?? settingsNow.keys ?? '',
@@ -937,11 +988,12 @@ export const register = (on: On, options?: PluginOptions): void => {
     const root = await rootOf($, cwd)
     if (root === null) {
       // An aborted lookup says nothing about the repo and nothing else redraws
-      // this: look again shortly. A real "not a repo" waits for refresh.
+      // this: look again shortly. For a real "not a repo" the Explorer watches
+      // for one appearing and redraws both panels when it does.
       if (threw !== before) $.clock.after(1000, () => $.ui.invalidate('ui.render'))
 
-      return (
-        <Box flexDirection="column" width="100%" minHeight={e.props.scroll.bodyRows} backgroundColor={t.bg}>
+      return own(
+        <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.bg}>
           <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
             <Text bold color={t.text}>{" Git"}</Text>
             {settingsButton}
@@ -964,7 +1016,6 @@ export const register = (on: On, options?: PluginOptions): void => {
     }
 
     const columns = e.props.bodyColumns
-    const bodyRows = e.props.scroll.bodyRows
     const home = await $.env.get('HOME')
     const changes = await statusOf($, cwd)
     const counts = changeCounts(changes)
@@ -1107,6 +1158,12 @@ export const register = (on: On, options?: PluginOptions): void => {
     const detailLeftMax = Math.max(0, detailWide - detailCols)
     const detailLeft = clamp(state.detailLeft ?? 0, detailLeftMax)
     const head0 = branches.find(branch => branch.isHead)
+    if (head0 === undefined && unborn === undefined) {
+      const before = threw
+      const name = (await run($, root, headNameArgv()))?.trim()
+      if (threw === before) unborn = name === undefined || name === '' ? null : name
+    }
+    const headName = head0?.name ?? unborn ?? undefined
     const branchRoom = Math.max(2, fullInner - 1)
     const tree = branchTree(branches, new Set(state.collapsed ?? []))
     const branchWin = windowOf(tree, -1, branchRoom, state.branchOffset ?? 0)
@@ -1844,8 +1901,8 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     const TAB_LABEL = { overview: 'Overview', graph: 'Graph', changelog: 'Change Log' + (changes.length > 0 ? ' ' + changes.length : '') } as const
 
-    return (
-      <Box flexDirection="column" width="100%" minHeight={e.props.scroll.bodyRows} backgroundColor={t.bg}>
+    return own(
+      <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.bg}>
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
           <Text bold color={t.text}>{' Git'}</Text>
           {settingsButton}
@@ -1966,7 +2023,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         <Box flexDirection="row" justifyContent="space-between" gap={2}>
           <Box flexShrink={1} flexDirection="row" gap={1}>
             <Text key="footer:dir" wrap="truncate-start" color={t.muted}>{' ' + shortDir(root, home)}</Text>
-            {Badge(elements, t, { key: 'footer:branch', label: head0?.name ?? 'detached', variant: 'outline' })}
+            {Badge(elements, t, { key: 'footer:branch', label: headName ?? 'detached', variant: 'outline' })}
           </Box>
           <Box key="footer:counts" flexShrink={0} paddingRight={1} flexDirection="row" gap={1}>
             {Badge(elements, t, { label: `+${counts.added}`, variant: isClean ? 'secondary' : 'success' })}
