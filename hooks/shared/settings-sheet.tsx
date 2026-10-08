@@ -63,10 +63,10 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
   const s = p.settings
   const surface = p.surface
   const cardW = sheetWidth(p.cols)
-  // The card's rows as drawn below (frame 2, title, 5 headings, 10 rows, the
+  // The card's rows as drawn below (frame 2, title, 5 headings, 8 rows, the
   // keys field 5, separator, footer): centers it; a wrapped row adds one,
   // which the shadow follows by itself.
-  const cardH = 2 + 1 + 5 + 10 + 5 + 1 + 1
+  const cardH = 2 + 1 + 5 + 8 + 5 + 1 + 1
   const area = Math.max(1, p.rows - 1)
   const top = centerOffset(area, cardH + 1)
   const left = centerOffset(p.cols, cardW + 1)
@@ -185,18 +185,7 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
               Chip(el, t, { key: 'settings:limit:' + n, label: String(n), selected: n === limit, surface, onPress: () => p.onChange({ gitLimit: n }) }),
             ),
           )}
-          {line(
-            'settings:l:view',
-            'Change view',
-            radio('settings:view', s.changeView ?? DEFAULTS.changeView, ['list', 'tree'], v => p.onChange({ changeView: v as 'list' | 'tree' })),
-          )}
           {heading('settings:h:layout', 'Layout')}
-          {line('settings:l:layout', 'Panels', [
-            radio('settings:layout', s.layout ?? DEFAULTS.layout, ['tabs', 'split'], v => p.onChange({ layout: v as 'tabs' | 'split' })),
-            <Text key="settings:layout:hint" color={t.muted}>
-              split: Explorer over Git; on done
-            </Text>,
-          ])}
           {line(
             'settings:l:auto',
             'Session',

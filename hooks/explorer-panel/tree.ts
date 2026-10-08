@@ -282,3 +282,38 @@ export const rowHit = (depth: number, kind: Entry['kind'], x: number): RowHit =>
 
   return kind === 'dir' && x >= arrow && x < arrow + 2 ? 'arrow' : 'name'
 }
+
+// A tree row's change mark: `+` added, `*` edited.
+export type ChangeMark = '+' | '*'
+
+// The tree's change marks from `git status --porcelain --untracked-files=normal`
+// (paths from the repo toplevel `top`): `paths` holds `+` for an added file
+// (untracked or staged new) and `*` for an edited one (modified, renamed,
+// copied) and for every dir above a change, deleted ones included; `newDirs`
+// are the dirs git reports untracked whole (`?? dir/`), `+` with everything
+// under them.
+export type ChangeMarks = { paths: Map<string, ChangeMark>; newDirs: string[] }
+
+export const changeMarks = (
+  changes: readonly { path: string; kind: 'added' | 'modified' | 'deleted' }[],
+  top: string,
+): ChangeMarks => {
+  const base = top.endsWith('/') ? top.slice(0, -1) : top
+  const paths = new Map<string, ChangeMark>()
+  const newDirs: string[] = []
+  for (const change of changes) {
+    const isDir = change.path.endsWith('/')
+    const path = base + '/' + (isDir ? change.path.slice(0, -1) : change.path)
+    if (isDir && change.kind === 'added') newDirs.push(path)
+    if (change.kind !== 'deleted') paths.set(path, change.kind === 'added' ? '+' : '*')
+    for (let dir = parentOf(path); dir.length > base.length + 1 && dir.startsWith(base + '/'); dir = parentOf(dir)) {
+      if (!paths.has(dir)) paths.set(dir, '*')
+    }
+  }
+
+  return { paths, newDirs }
+}
+
+// The mark of `path`, if any: its own, else `+` inside a dir new as a whole.
+export const markOf = (path: string, marks: ChangeMarks): ChangeMark | undefined =>
+  marks.paths.get(path) ?? (marks.newDirs.some(dir => path.startsWith(dir + '/')) ? '+' : undefined)

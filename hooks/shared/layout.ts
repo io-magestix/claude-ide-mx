@@ -1,11 +1,9 @@
-// The split layout (Settings `layout: 'split'`): one pane, `ide-split`, the
-// Explorer on top and Git below, instead of the two panes as tabs. Pure
-// helpers, plus `seat`: what the two panels' hooks share about it.
+// The panels' one layout: one pane, `ide-split`, the Explorer on top and Git
+// below. Pure helpers, plus `seat`: what the two panels' hooks share about it.
 import type { RenderElement } from 'claude-code'
 
 import { splitAt } from './split'
 
-export const EXPLORER_PANE = 'ide-explorer'
 export const SPLIT_PANE = 'ide-split'
 export const SPLIT_TITLE = 'IDE'
 
@@ -18,8 +16,8 @@ export const SPLIT_WIDTH = 0.2
 export const MIN_SPLIT_COLUMNS = 24
 // The fewest rows a half keeps: header lines, a framed section, the footer.
 export const MIN_HALF_ROWS = 8
-// Git's rows while the root is not in a repo: its title, the note, `refresh`.
-export const NO_REPO_ROWS = 3
+// Git's rows while the root is not in a repo: its title and the note.
+export const NO_REPO_ROWS = 2
 
 // The `$.store` key of the window's columns as `/ide-panels` last measured them
 // (global): the width a session's own opening asks its share of.
@@ -76,13 +74,9 @@ export const gitKeyOf = (key: string | undefined): string | undefined =>
 
 // Shared by the two panels' hooks (module state, reset by a reload and set
 // again by the next drawing): the window's columns as `/ide-panels` last saw
-// them, the rows of Git's half as the split pane last drew it, and a switch
-// of layout under way.
+// them and the rows of Git's half as the split pane last drew it.
 export const seat = {
   windowColumns: 0,
   gitTop: 0,
   gitRows: 0,
-  // The layout a switch is closing panes for: a close the unsaved-changes bar
-  // holds meanwhile seats it once answered.
-  switching: undefined as 'tabs' | 'split' | undefined,
 }

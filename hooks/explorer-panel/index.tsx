@@ -21,8 +21,10 @@ import {
   parentOf,
   relativePath,
   window as windowOf,
+  changeMarks,
+  markOf,
 } from './tree'
-import type { Entry, Mode, Row } from './tree'
+import type { ChangeMarks, Entry, Mode, Row } from './tree'
 import { deleteTargets, pruneMarks, rangeOf, toggleMark } from './marks'
 import {
   convertArgv,
@@ -54,7 +56,7 @@ import type { MdRow, Role, Span } from './markdown/rows'
 import { spansWidth } from './markdown/wrap'
 import { anchorRow, expandPictures, isLinkable, linkHits, linkTarget, localPath } from './markdown/view'
 import type { LinkHit, MdView, Picture, ViewRow } from './markdown/view'
-import { GIT_PANE, changeCounts, headNameArgv, shortDir, parseStatus, statusArgv } from '../git-panel/git'
+import { headNameArgv, parseStatus, statusArgv } from '../git-panel/git'
 import { lastAgentColor, parseColorAnswer } from '../shared/color'
 import { H_THUMB, H_TRACK, scrollbar } from '../shared/scrollbar'
 import { sliceCols, widest } from '../shared/hscroll'
@@ -64,7 +66,7 @@ import { DEFAULTS, SETTINGS_KEY, keysError, mergeKeys, resolveTheme, settingsOf 
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyScheme, resetThemeEnv, supportedTerminal, tabbyConfigPaths, themeEnv, themeNote } from '../shared/term-theme'
 import type { Theme } from '../shared/theme'
-import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
+import { Btn, Tabs, onDefaultFg } from '../shared/ui'
 import {
   classify,
   hasRefs,
@@ -95,62 +97,32 @@ const settingsUi = atom<'ide-panes', 'settingsUi'>(
 )
 const PANE = 'ide-explorer'
 
-// Where the Explorer is drawn: its own pane (`tabs`) or the split pane's top
-// half (`split`). Set by each drawing; a reload draws again before any press.
+// Where the Explorer is drawn: the split pane's top half, or its own pane
+// (which nothing opens now but the tests). Set by each drawing; a reload draws
+// again before any press.
 let host: typeof PANE | typeof SPLIT_PANE = PANE
 // The split pane's half the keyboard was last in: the scroll keys go there.
 let splitFocus: 'explorer' | 'git' = 'explorer'
 
-// The layout seated now, as the Settings name it.
-const seatedLayout = (): 'tabs' | 'split' => (host === SPLIT_PANE ? 'split' : 'tabs')
-
-// The `$.ui.open` arguments of each pane: the split pane asks for its share
-// of the window (docked; the person's own drag of the dock wins), or the dock's
-// own share while no width is known.
-const openArgs = (id: string): PaneOpenArgs =>
-  id === SPLIT_PANE
-    ? { id, title: SPLIT_TITLE, ...(seat.windowColumns > 0 ? { columns: splitColumns(seat.windowColumns) } : {}) }
-    : { id, title: id === PANE ? 'Explorer' : 'Git' }
-
 const paneIsOpen = async ($: EngineInterface, id: string): Promise<boolean> =>
   (await $.ui.panes()).some(pane => pane.id === id)
 
-// `layout` while a switch of layout closes panes (`seat.switching`): a close
-// the unsaved-changes bar holds then seats the new layout once answered (`finish`).
-const layoutPending = (): string | undefined => (seat.switching === undefined ? undefined : 'layout')
+// The `$.ui.open` arguments of the pane the Explorer is drawn in: the split
+// pane asks for its share of the window (docked; the person's own drag of the
+// dock wins), or the dock's own share while no width is known.
+const openArgs = (id: string): PaneOpenArgs =>
+  id === SPLIT_PANE
+    ? { id, title: SPLIT_TITLE, ...(seat.windowColumns > 0 ? { columns: splitColumns(seat.windowColumns) } : {}) }
+    : { id, title: 'Explorer' }
 
-// Seats the panels as `layout` says, as one window: the other layout's panes
-// close first (closing the Explorer closes Git too), then all of this one's
-// open (those already open are only raised). Unsaved text holds the close
-// behind the unsaved-changes bar, which seats `layout` once answered
-// (`finish`); false then, nothing opened yet. Without `focus` the keyboard stays
-// where it is (a session's own opening).
-const openLayout = async ($: EngineInterface, layout: 'tabs' | 'split', focus = true): Promise<boolean> => {
-  seat.switching = layout
-  try {
-    for (const id of layout === 'split' ? [PANE, GIT_PANE] : [SPLIT_PANE]) {
-      if (!(await paneIsOpen($, id))) continue
-      await $.ui.close({ id })
-      if (await paneIsOpen($, id)) return false
-    }
-  } finally {
-    seat.switching = undefined
-  }
-  const focused = focus ? ({ focus: true } as const) : {}
-  if (layout === 'split') {
-    await $.ui.open({ ...openArgs(SPLIT_PANE), ...focused })
-
-    return true
-  }
-  await $.ui.open(openArgs(PANE))
-  await $.ui.open(openArgs(GIT_PANE))
-  await $.ui.open({ ...openArgs(PANE), ...focused })
-
-  return true
+// Opens the split pane (an open one is only raised). Without `focus` the
+// keyboard stays where it is (a session's own opening).
+const openPanels = async ($: EngineInterface, focus = true): Promise<void> => {
+  await $.ui.open(focus ? { ...openArgs(SPLIT_PANE), focus: true } : openArgs(SPLIT_PANE))
 }
 // Settings `autoOpen` (on by default). A new interactive session opens the
-// panels as the layout says, unless one is open already, leaving the keyboard
-// with the prompt; the width is the window `/ide-panels` last measured. An
+// split pane, unless a pane is open already, leaving the keyboard with the
+// prompt; the width is the window `/ide-panels` last measured. An
 // opening the session made unasked waits undrawn on a narrow terminal (the
 // engine's floor) until it widens or `/ide-panels` runs.
 const openOnStart = async ($: EngineInterface): Promise<void> => {
@@ -160,19 +132,19 @@ const openOnStart = async ($: EngineInterface): Promise<void> => {
     const width = await $.store.get(WINDOW_KEY)
     if (seat.windowColumns === 0 && typeof width === 'number' && width > 0) seat.windowColumns = width
     if ((await $.ui.panes()).length > 0) return
-    await openLayout($, now.layout ?? DEFAULTS.layout, false)
+    await openPanels($, false)
   } catch {
     // nothing to open panes on
   }
 }
 
 // The session's exit (/exit, ctrl+c, ctrl+d, logout, a signal; not a /clear or
-// a resume, which go on) closes the panels when `autoOpen` is on.
+// a resume, which go on) closes the split pane when `autoOpen` is on.
 const EXIT_REASONS: readonly string[] = ['prompt_input_exit', 'logout', 'other']
 const closeOnExit = async ($: EngineInterface, reason: string): Promise<void> => {
   if (!EXIT_REASONS.includes(reason) || !((await read($, settings)).autoOpen ?? DEFAULTS.autoOpen)) return
   try {
-    for (const id of [SPLIT_PANE, PANE, GIT_PANE]) if (await paneIsOpen($, id)) await $.ui.close({ id })
+    if (await paneIsOpen($, SPLIT_PANE)) await $.ui.close({ id: SPLIT_PANE })
   } catch {
     // no panes to ask about
   }
@@ -193,12 +165,9 @@ const ignored = new Set<string>()
 // Whether a root holds `ProjectSettings/ProjectVersion.txt`; checked in Unity
 // mode only.
 const unityRoots = new Map<string, boolean>()
-// The footer's branch and change counts per root; undefined `branch`: not a
+// The branch and the tree's change marks per root; undefined `branch`: not a
 // repo. Cleared with the listings.
-const footers = new Map<
-  string,
-  { branch?: string; counts: { added: number; modified: number; deleted: number } }
->()
+const footers = new Map<string, { branch?: string; marks: ChangeMarks }>()
 // Rows the tree window shows; set by render, read by the focus hook.
 let treeRows = 20
 // Each side of the splitter keeps at least this many columns.
@@ -384,8 +353,8 @@ const gitOut = async (
   }
 }
 
-// The branch (a short sha when detached) and the working tree's change
-// counts for the footer; no branch outside a repo.
+// The branch (a short sha when detached) and the working tree's change marks
+// (`+` added, `*` edited) for the tree; no branch outside a repo.
 const footerOf = async ($: EngineInterface, root: string) => {
   let footer = footers.get(root)
   if (footer === undefined) {
@@ -397,10 +366,10 @@ const footerOf = async ($: EngineInterface, root: string) => {
       // A repo before its first commit still names its branch.
       branch = (await gitOut($, root, headNameArgv()))?.trim()
     }
-    const status = branch === undefined ? undefined : await gitOut($, root, statusArgv())
+    const status = branch === undefined ? undefined : await gitOut($, root, statusArgv('normal'))
     footer = {
       branch: branch === '' ? undefined : branch,
-      counts: changeCounts(parseStatus(status ?? '')),
+      marks: changeMarks(parseStatus(status ?? ''), status === undefined ? root : await toplevelOf($, root)),
     }
     // An aborted call (a superseded drawing) left it blank: the next asks again.
     if (gitThrew === before) footers.set(root, footer)
@@ -1184,18 +1153,6 @@ const followLink = async ($: EngineInterface, href: string): Promise<void> => {
   }
 }
 
-const copyName = async (
-  $: EngineInterface,
-  name: string,
-  surface: Parameters<EngineInterface['ui']['copy']>[0]['surface'],
-): Promise<void> => {
-  const text = 'Explorer › ' + name
-  const copied = await $.ui.copy({ text, surface })
-  await $.ui.toast(
-    copied.isCopied ? `Copied: ${text}` : `Copy failed: ${copied.reason}`,
-  )
-}
-
 // The repo toplevel a root's paths are named from (the root itself outside
 // a repo); `copyPath` fills it, `refresh` clears it.
 const toplevels = new Map<string, string>()
@@ -1583,15 +1540,9 @@ const resetLayout = async ($: EngineInterface): Promise<void> => {
   await toast($, 'Layout reset')
 }
 
-// Saved; a layout changed on this sheet is seated now (the sheet's Buttons are
-// presses, so the panes it opens are placed at any width).
 const settingsDone = async ($: EngineInterface): Promise<void> => {
-  const before = (await read($, settingsUi)).before
-  const now = await read($, settings)
-  await $.store.set(SETTINGS_KEY, now)
+  await $.store.set(SETTINGS_KEY, await read($, settings))
   await update($, settingsUi, () => ({}))
-  const layout = now.layout ?? DEFAULTS.layout
-  if (layout !== (before?.layout ?? DEFAULTS.layout) && layout !== seatedLayout()) await openLayout($, layout)
 }
 
 const settingsCancel = async ($: EngineInterface): Promise<void> => {
@@ -1705,7 +1656,6 @@ const finish = async (
   await clearEdit($)
   if (confirm === 'select' && pending !== undefined) await jump($, pending)
   else if (confirm === 'mode' && isMode(pending)) await setMode($, pending)
-  else if (confirm === 'pane' && pending === 'layout') await openLayout($, (await read($, settings)).layout ?? DEFAULTS.layout)
   else if (confirm === 'pane') await $.ui.close({ id: host })
   else if (confirm === 'new' && pending !== undefined) await openNaming($, pending)
   $.ui.invalidate('ui.render')
@@ -2379,53 +2329,21 @@ export const register = (on: On, options?: PluginOptions): void => {
     return ran
   })
 
-  // Opens the panels as the Settings `layout` says: two panes as tabs, or the
-  // split pane (its width a share of the window's, measured here).
+  // Opens the split pane, its width a share of the window's, measured here.
   on('command.run', { command: 'ide-panels' }, async ($, e) => {
     seat.windowColumns = e.presentation.columns
     // Kept for the next session's own opening, which has no width to go by.
     await $.store.set(WINDOW_KEY, e.presentation.columns)
-    const layout = (await read($, settings)).layout ?? DEFAULTS.layout
-    if (!(await openLayout($, layout))) {
-      return { text: 'Unsaved changes in the Explorer: save or discard them on its bar, then the panels switch.' }
-    }
+    await openPanels($)
 
-    return {
-      text:
-        layout === 'split'
-          ? 'Opened Explorer over Git.'
-          : 'Opened Explorer and Git (ctrl+x tab, or click a tab, to switch).',
-    }
+    return { text: 'Opened Explorer over Git.' }
   })
 
   // Closing the pane over unsaved text (the person, or another plugin) gets
   // the unsaved-changes bar instead; answering without `next` keeps it open.
-  // The two panes are one window: the ✕ on either closes both. The explorer
-  // closes first (its guard may hold both open); Git goes once it has.
-  on('ui.close', { id: PANE }, async ($, e, next) => {
-    if (e.origin.kind !== 'unload' && (await guarded($, 'pane', layoutPending()))) return { value: undefined }
-    // Converted pictures go with the pane (a reload forgets them otherwise).
-    await removeAllConverted($)
-    if (e.origin.kind === 'unload') return next(e)
-    const closed = await next(e)
-    if ((await $.ui.panes()).some(pane => pane.id === GIT_PANE)) await $.ui.close({ id: GIT_PANE })
-
-    return closed
-  })
-
-  // Any close of Git (the person's, another plugin's) while the Explorer is open
-  // goes through the Explorer: its hook closes Git after it, or the unsaved bar
-  // keeps both. Only the engine's unload closes each on its own.
-  on('ui.close', { id: GIT_PANE }, async ($, e, next) => {
-    if (e.origin.kind === 'unload' || !(await $.ui.panes()).some(pane => pane.id === PANE)) return next(e)
-    await $.ui.close({ id: PANE })
-
-    return { value: undefined }
-  })
-
-  // The split pane closes as the Explorer does: unsaved text asks first.
-  on('ui.close', { id: SPLIT_PANE }, async ($, e, next) => {
-    if (e.origin.kind !== 'unload' && (await guarded($, 'pane', layoutPending()))) return { value: undefined }
+  // Converted pictures go with the pane (a reload forgets them otherwise).
+  on('ui.close', { id: [PANE, SPLIT_PANE] }, async ($, e, next) => {
+    if (e.origin.kind !== 'unload' && (await guarded($, 'pane'))) return { value: undefined }
     await removeAllConverted($)
 
     return next(e)
@@ -2706,11 +2624,11 @@ export const register = (on: On, options?: PluginOptions): void => {
             : namingIn !== undefined
               ? 'naming'
               : undefined
-    // Header lines (the title row, its right end kept for the Settings ⚙;
-    // panel tabs; actions; the interactive line while it asks), the bordered
-    // sections (2 rows of frame each), then the footer row.
-    const headerRows = ask === undefined ? 3 : 4
-    const sectionRows = Math.max(5, bodyRows - headerRows - 1)
+    // Header lines (the title row with the panel tabs, its right end kept for
+    // the Settings ⚙; actions; the interactive line while it asks), then the
+    // bordered sections (2 rows of frame each).
+    const headerRows = ask === undefined ? 2 : 3
+    const sectionRows = Math.max(5, bodyRows - headerRows)
     const footer = await footerOf($, root)
     // Outside a repo, look for one appearing (a definite answer only, not an
     // aborted call's); once one has, Git's half is back at its 30%.
@@ -2718,9 +2636,6 @@ export const register = (on: On, options?: PluginOptions): void => {
       if (footer.branch === undefined) watchRepo($, root)
       else if (repoLess.delete(root) && state.split?.panels !== undefined) resetPanels($)
     }
-    const counts = footer.counts
-    const isClean = counts.added + counts.modified + counts.deleted === 0
-    const homeDir = await $.env.get('HOME')
     // Each section is framed in the theme's border color, or the `/color` accent.
     const border = { borderStyle: 'round', borderColor: accentBorder ? t.accent : t.border } as const
     // Rows inside a section's frame.
@@ -3069,20 +2984,14 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     // The section's name sits on its top border. A bordered Box clips its
     // children, so the title is an absolute Box after it, at top={0}, in an
-    // unbordered wrapper of the same size. The Button carries its own label
-    // (default foreground) on an accent-tinted fill: a Text over a Button would
-    // block the press, a blank Button under a Text would paint over it. `mark`
-    // (Edit's unsaved `●`) is a warning-colored Text on the border before it.
+    // unbordered wrapper of the same size: a label (default foreground) on an
+    // accent-tinted fill, pressing it does nothing. `mark` (Edit's unsaved `●`)
+    // is a warning-colored Text on the border before it.
     const titled = (key: string, name: string, mark?: string) => (
       <Box position="absolute" top={0} left={1} flexDirection="row">
         {mark !== undefined && <Text color={t.warning}>{mark}</Text>}
         <Box key={key + ':chrome'} backgroundColor={onDefaultFg(t.accent)}>
-          <Button
-            key={key}
-            plain
-            label={' ' + name + ' '}
-            onPress={pressed => copyName($, name, pressed.surface)}
-          />
+          <Text key={key}>{' ' + name + ' '}</Text>
         </Box>
       </Box>
     )
@@ -3149,26 +3058,39 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     const own = (
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
-        <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
-          <Text bold color={t.text}>
-            {' Explorer'}
-          </Text>
-          {SettingsButton(elements, t, { surface, isOpen: sheet.open === host, onPress: () => void toggleSettings($) })}
-        </Box>
-        {/* Panel tabs; the active one does nothing (a mode switch would close
-            a clean editor and reset the scroll). */}
-        <Box key="header:tabs" flexDirection="row" gap={1}>
-          {Tabs(elements, t, {
-            style: 'pill',
-            surface,
-            tabs: [
-              { id: 'files', label: 'Files' },
-              { id: 'unity', label: 'Unity' },
-            ],
-            selected: state.mode,
-            onSelect: asleep((id: string) => (id === state.mode || !isMode(id) ? undefined : void setMode($, id))),
-          })}
-          {isNotUnity && <Text color={t.muted}>not a Unity project</Text>}
+        {/* The title and the panel tabs, 4 cells apart, cut at the right end
+            on a narrow pane (kept for the Settings ⚙). The active tab does
+            nothing (a mode switch would close a clean editor and reset the
+            scroll). */}
+        <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
+          <Box key="header:tabs" flexDirection="row" gap={4} flexShrink={1} overflow="hidden">
+            <Box flexShrink={0}>
+              <Text bold color={t.text}>
+                {' Explorer'}
+              </Text>
+            </Box>
+            <Box flexShrink={0}>
+              {Tabs(elements, t, {
+                style: 'pill',
+                gap: 4,
+                surface,
+                tabs: [
+                  { id: 'files', label: 'Files' },
+                  { id: 'unity', label: 'Unity' },
+                ],
+                selected: state.mode,
+                onSelect: asleep((id: string) => (id === state.mode || !isMode(id) ? undefined : void setMode($, id))),
+              })}
+            </Box>
+            {isNotUnity && (
+              <Box flexShrink={0}>
+                <Text color={t.muted}>not a Unity project</Text>
+              </Box>
+            )}
+          </Box>
+          <Box flexShrink={0}>
+            {SettingsButton(elements, t, { surface, isOpen: sheet.open === host, onPress: () => void toggleSettings($) })}
+          </Box>
         </Box>
         <Box key="header:actions" flexDirection="row" gap={1}>
           {btn(
@@ -3293,12 +3215,18 @@ export const register = (on: On, options?: PluginOptions): void => {
               const isSelected = row.path === state.selected && (!multi || isMarked)
               const isLit = isSelected || isMarked
               const isIgnored = ignored.has(row.path)
+              // `+` added, `*` edited (a dir: something under it), after the name.
+              const change = footer.branch === undefined ? undefined : markOf(row.path, footer.marks)
+              const changeColor = change === '+' ? t.success : t.warning
               // The row's room: frame (2) and vertical bar (1).
               const room = treeCols - 2 - 1
               const label = (cells: number) =>
-                // the name's room past mark, rails and arrow; no horizontal
-                // scroll in list sections, so a long name is cut
-                fitLabel(row.kind === 'dir' ? row.name + '/' : row.name, Math.max(3, cells - 1 - 2 * row.depth - 2))
+                // the name's room past mark, rails, arrow and change mark; no
+                // horizontal scroll in list sections, so a long name is cut
+                fitLabel(
+                  row.kind === 'dir' ? row.name + '/' : row.name,
+                  Math.max(3, cells - 1 - 2 * row.depth - 2 - (change === undefined ? 0 : 2)),
+                )
               const arrow = row.kind === 'dir' ? (row.isExpanded ? '▾ ' : '▸ ') : '  '
               if (canEdit && Client !== undefined) {
                 return (
@@ -3317,7 +3245,8 @@ export const register = (on: On, options?: PluginOptions): void => {
                         isCursor: state.cursor === row.path && state.cursor !== state.selected,
                         isIgnored,
                         label: label(room - 1),
-                        colors: { accent: t.accent, border: t.border, muted: t.muted, selection: sel },
+                        ...(change === undefined ? {} : { change }),
+                        colors: { accent: t.accent, border: t.border, muted: t.muted, selection: sel, change: changeColor },
                       }}
                       width={Math.max(1, room - 1)}
                       height={1}
@@ -3354,6 +3283,7 @@ export const register = (on: On, options?: PluginOptions): void => {
                     label={label(room)}
                     onPress={() => press($, row)}
                   />
+                  {change !== undefined && <Text color={changeColor}>{' ' + change}</Text>}
                 </Box>
               )
             })}
@@ -3526,21 +3456,6 @@ export const register = (on: On, options?: PluginOptions): void => {
           </Box>
           )}
           {splitter('split:tree', 'x', treeCols - 1, 1, sectionRows - 2, treeCols)}
-        </Box>
-        <Box flexDirection="row" justifyContent="space-between" gap={2}>
-          <Box flexShrink={1} flexDirection="row" gap={1}>
-            <Text key="footer:dir" wrap="truncate-start" color={t.muted}>
-              {' ' + shortDir(root, homeDir)}
-            </Text>
-            {footer.branch !== undefined && Badge(elements, t, { key: 'footer:branch', label: footer.branch, variant: 'outline' })}
-          </Box>
-          {footer.branch !== undefined && (
-            <Box key="footer:counts" flexShrink={0} paddingRight={1} flexDirection="row" gap={1}>
-              {Badge(elements, t, { label: `+${counts.added}`, variant: isClean ? 'secondary' : 'success' })}
-              {Badge(elements, t, { label: `~${counts.modified}`, variant: isClean ? 'secondary' : 'outline' })}
-              {Badge(elements, t, { label: `-${counts.deleted}`, variant: isClean ? 'secondary' : 'destructive' })}
-            </Box>
-          )}
         </Box>
         {!isSplit && sheetTree}
       </Box>

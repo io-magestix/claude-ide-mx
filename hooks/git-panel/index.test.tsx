@@ -139,7 +139,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         viewport: VIEWPORT,
       })
 
-    test(`${surface}/${columns}: header lines: panel tabs, then actions`, async ($, on) => {
+    test(`${surface}/${columns}: one header line: title, panel tabs, then actions`, async ($, on) => {
       mock.store(on)
       fake(on, [])
       await $.session.start(start(surface))
@@ -147,17 +147,18 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
       const boxes = await ui.findAll({ type: 'Box' })
       const lines = boxes.map(box => box.key ?? '').filter(key => key.startsWith('header:'))
-      expect(lines).toEqual(['header:tabs', 'header:actions'])
-      const keysOf = (key: string) =>
-        ((boxes.find(box => box.key === key)?.children ?? []) as { props?: { key?: string }; key?: string }[])
-          .map(child => child.key ?? child.props?.key)
-          .filter(k => k !== undefined)
-      const bare = (keys: (string | undefined)[]) => keys.map(k => (k ?? '').replace(/:chrome$/, ''))
-      expect(bare(keysOf('header:actions'))).toEqual(['refresh', 'fetch', 'pull'])
-      const tabKeys = (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '').filter(k => k.startsWith('tab:'))
-      expect(tabKeys).toEqual(['tab:overview', 'tab:graph', 'tab:changelog'])
-      // the title row sits above the tabs; the theme lives in Settings, not here
-      expect(boxes.find(box => box.key === 'header')).toBeDefined()
+      expect(lines).toEqual(['header:tabs'])
+      const header = boxes.find(box => box.key === 'header')
+      expect(header?.props.height).toBe(1)
+      expect(boxes.find(box => box.key === 'header:tabs')?.props.gap).toBe(2)
+      // the title, the tabs and the actions share the row, in that order
+      const row = (await ui.findAll({ type: 'Button' }))
+        .map(b => b.key ?? '')
+        .filter(k => k.startsWith('tab:') || ['back', 'refresh', 'fetch', 'pull'].includes(k))
+      expect(row).toEqual(['tab:overview', 'tab:graph', 'tab:changelog', 'fetch', 'pull'])
+      expect((boxes.find(box => box.key === 'header:tabs')?.text ?? '').startsWith(' Git')).toBe(true)
+      expect(await ui.find({ key: 'refresh' })).toBeUndefined()
+      // the theme lives in Settings, not here
       expect(await ui.find({ key: 'theme' })).toBeUndefined()
     })
 
@@ -231,9 +232,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await $.session.start(start(surface))
       const ui = await mount($)
 
-      expect((await ui.find({ key: 'title:branches' }))?.props.label).toBe(' Branches ')
-      expect((await ui.find({ key: 'title:commits' }))?.props.label).toBe(' Commits ')
-      expect((await ui.find({ key: 'title:info' }))?.props.label).toBe(' Info ')
+      expect((await ui.find({ key: 'title:branches:chrome' }))?.text).toBe(' Branches ')
+      expect((await ui.find({ key: 'title:commits:chrome' }))?.text).toBe(' Commits ')
+      expect((await ui.find({ key: 'title:info:chrome' }))?.text).toBe(' Info ')
       expect(await ui.find({ type: 'Text', text: /\/repo/ })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: 'develop' })).toBeDefined()
       for (const count of ['+1', '~1', '-1']) expect(await ui.find({ type: 'Text', text: count })).toBeDefined()
@@ -241,27 +242,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await ui.find({ type: 'Text', text: '/home/u' })).toBeUndefined()
     })
 
-    test(`${surface}/${columns}: pressing a title copies its name`, async ($, on) => {
+    test(`${surface}/${columns}: a title is a label, not a Button`, async ($, on) => {
       mock.store(on)
       fake(on, [])
-      const copied: string[] = []
-      const toasts: string[] = []
-      on('ui.copy', (_$, e) => {
-        copied.push(e.text)
-
-        return { value: { isCopied: true } }
-      })
-      on('ui.toast', (_$, e) => {
-        toasts.push(e.text)
-
-        return { value: undefined }
-      })
       await $.session.start(start(surface))
       const ui = await mount($)
 
-      await ui.press({ key: 'title:info' })
-      expect(copied).toEqual(['Git › Info'])
-      expect(toasts.at(-1)).toBe('Copied: Git › Info')
+      for (const [key, name] of [['title:branches', 'Branches'], ['title:commits', 'Commits'], ['title:info', 'Info']] as const) {
+        expect((await ui.find({ key: key + ':chrome' }))?.text).toBe(' ' + name + ' ')
+        expect(await ui.find({ type: 'Button', key })).toBeUndefined()
+      }
     })
 
     test(`${surface}/${columns}: pressing a branch re-runs log with that ref`, async ($, on) => {
@@ -454,51 +444,6 @@ for (const surface of ['terminal', 'desktop'] as const) {
 for (const surface of ['terminal', 'desktop'] as const) {
   const bash = (command: string) => ({ tool: 'Bash', command }) as const
 
-  test(`${surface}: status shows the branch, follows Bash, clears outside a repo`, async ($, on) => {
-    mock.store(on)
-    const head = { name: 'main' }
-    fake(on, [], true, LOG, head)
-    const statuses: unknown[] = []
-    on('ui.status', (_$, e) => {
-      statuses.push(e.text)
-
-      return { value: undefined }
-    })
-    on('prompt.submit', (_$, e) => e)
-    on('tool.call', () => ({ result: {}, text: '' }) as never)
-    await $.session.start(start(surface))
-    // the explorer owns session.start; the git view sets status on first prompt
-    await $.prompt.submit({ text: 'hi' } as never)
-    expect(statuses).toEqual(['⎇ main'])
-
-    head.name = 'feature'
-    await $.tool.call(bash('git switch feature'))
-    expect(statuses).toEqual(['⎇ main', '⎇ feature'])
-
-    await $.tool.call(bash('ls'))
-    expect(statuses.length).toBe(2)
-
-    head.name = 'HEAD'
-    await $.tool.call(bash('git checkout abc'))
-    expect(statuses[2]).toBe('⎇ abc1234')
-  })
-
-  test(`${surface}: status is cleared outside a repo`, async ($, on) => {
-    mock.store(on)
-    fake(on, [], false)
-    const statuses: unknown[] = []
-    on('ui.status', (_$, e) => {
-      statuses.push(e.text)
-
-      return { value: undefined }
-    })
-    on('prompt.submit', (_$, e) => e)
-    await $.session.start(start(surface))
-    await $.prompt.submit({ text: 'hi' } as never)
-
-    expect(statuses).toEqual([undefined])
-  })
-
   test(`${surface}: a Bash call re-runs git log on the next render`, async ($, on) => {
     mock.store(on)
     const calls: string[][] = []
@@ -551,7 +496,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(statuses()).toBe(2)
   })
 
-  test(`${surface}: no Button carries a hotkey; refresh reloads`, async ($, on) => {
+  test(`${surface}: no Button carries a hotkey; no refresh is drawn`, async ($, on) => {
     mock.store(on)
     const calls: string[][] = []
     fake(on, calls)
@@ -566,16 +511,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
     })
 
     expect(await ui.find({ key: 'all' })).toBeDefined()
-    expect(await ui.find({ key: 'refresh' })).toBeDefined()
+    expect(await ui.find({ key: 'refresh' })).toBeUndefined()
     for (const b of await ui.findAll({ type: 'Button' })) expect(b.props.hotkey).toBeUndefined()
     await ui.press({ key: 'branch:origin/main' })
-    const before = calls.filter(a => a[1] === 'log').length
     await ui.press({ key: 'all' })
     expect(
       calls.filter(a => a[1] === 'log' && a.includes('--all')).length,
     ).toBeGreaterThan(0)
-    await ui.press({ key: 'refresh' })
-    expect(calls.filter(a => a[1] === 'log').length).toBeGreaterThan(before)
   })
 
   test(`${surface}: fetch and pull run git and report in a toast`, async ($, on) => {
@@ -740,34 +682,35 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await ui.find({ key: 'tab:overview' })).toBeDefined()
       expect(await ui.find({ key: 'tab:graph' })).toBeDefined()
       expect(await ui.find({ key: 'tab:changelog' })).toBeDefined()
-      expect((await ui.find({ key: 'tab:changelog' }))?.props.label).toContain('Change Log 3')
+      // no change count on the tab
+      expect((await ui.find({ key: 'tab:changelog' }))?.props.label).toBe('Change Log')
       expect(await isOn(ui, 'tab:overview')).toBe(true)
       // Overview: Branches, Commits, Info; no Files
-      expect((await ui.find({ key: 'title:branches' }))?.props.label).toBe(' Branches ')
-      expect((await ui.find({ key: 'title:commits' }))?.props.label).toBe(' Commits ')
-      expect((await ui.find({ key: 'title:info' }))?.props.label).toBe(' Info ')
-      expect(await ui.find({ key: 'title:files' })).toBeUndefined()
+      expect((await ui.find({ key: 'title:branches:chrome' }))?.text).toBe(' Branches ')
+      expect((await ui.find({ key: 'title:commits:chrome' }))?.text).toBe(' Commits ')
+      expect((await ui.find({ key: 'title:info:chrome' }))?.text).toBe(' Info ')
+      expect(await ui.find({ key: 'title:files:chrome' })).toBeUndefined()
       expect(await ui.find({ key: 'change:b.txt' })).toBeUndefined()
 
       await ui.press({ key: 'tab:changelog' })
       expect(await isOn(ui, 'tab:changelog')).toBe(true)
-      expect((await ui.find({ key: 'title:files' }))?.props.label).toBe(' Files ')
-      expect((await ui.find({ key: 'title:diff' }))?.props.label).toBe(' Diff Preview ')
-      expect(await ui.find({ key: 'title:branches' })).toBeUndefined()
-      expect(await ui.find({ key: 'title:commits' })).toBeUndefined()
+      expect((await ui.find({ key: 'title:files:chrome' }))?.text).toBe(' Files ')
+      expect((await ui.find({ key: 'title:diff:chrome' }))?.text).toBe(' Diff Preview ')
+      expect(await ui.find({ key: 'title:branches:chrome' })).toBeUndefined()
+      expect(await ui.find({ key: 'title:commits:chrome' })).toBeUndefined()
       expect(await keys(ui, 'change:')).toEqual(['change:a.txt', 'change:b.txt', 'change:c.txt'])
       expect(await keys(ui, 'commit:')).toEqual([])
 
       await ui.press({ key: 'tab:graph' })
-      expect((await ui.find({ key: 'title:graph' }))?.props.label).toBe(' Graph ')
-      expect(await ui.find({ key: 'title:commits' })).toBeUndefined()
+      expect((await ui.find({ key: 'title:graph:chrome' }))?.text).toBe(' Graph ')
+      expect(await ui.find({ key: 'title:commits:chrome' })).toBeUndefined()
       // Graph over Info
-      expect((await ui.find({ key: 'title:info' }))?.props.label).toBe(' Info ')
-      expect(await ui.find({ key: 'title:branches' })).toBeUndefined()
+      expect((await ui.find({ key: 'title:info:chrome' }))?.text).toBe(' Info ')
+      expect(await ui.find({ key: 'title:branches:chrome' })).toBeUndefined()
       expect((await keys(ui, 'commit:')).length).toBeGreaterThan(0)
 
       await ui.press({ key: 'tab:overview' })
-      expect((await ui.find({ key: 'title:info' }))?.props.label).toBe(' Info ')
+      expect((await ui.find({ key: 'title:info:chrome' }))?.text).toBe(' Info ')
     })
 
     test(`${surface}/${columns}: an old persisted tab 'changes' opens Change Log`, async ($, on) => {
@@ -796,7 +739,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         viewport: VIEWPORT,
       })
 
-      expect((await ui.find({ key: 'title:files' }))?.props.label).toBe(' Files ')
+      expect((await ui.find({ key: 'title:files:chrome' }))?.text).toBe(' Files ')
       expect(await isOn(ui, 'tab:changelog')).toBe(true)
     })
 
@@ -828,14 +771,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await ui.find({ type: 'Text', text: 'No textual changes.' })).toBeDefined()
     })
 
-    test(`${surface}/${columns}: view toggles list and tree; folders collapse`, async ($, on) => {
+    test(`${surface}/${columns}: Files is a tree, no view toggle; folders collapse`, async ($, on) => {
       const ui = await open($, on, [], ['?? src/a.ts', ' M src/ui/b.ts', ' M top.txt', ''].join('\0'))
       await ui.press({ key: 'tab:changelog' })
 
-      expect(await ui.find({ key: 'view' })).toBeDefined()
-      expect(await keys(ui, 'cdir:')).toEqual([])
-      expect(await ui.find({ type: 'Text', text: 'src/' })).toBeDefined()
-      await ui.press({ key: 'view' })
+      expect(await ui.find({ key: 'view' })).toBeUndefined()
       expect(await keys(ui, 'cdir:')).toEqual(['cdir:c:src', 'cdir:c:src/ui'])
       expect(await keys(ui, 'change:')).toEqual([
         'change:top.txt',
@@ -846,8 +786,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await keys(ui, 'change:')).toEqual(['change:top.txt'])
       await ui.press({ key: 'cdir:c:src' })
       expect((await keys(ui, 'change:')).length).toBe(3)
-      await ui.press({ key: 'view' })
-      expect(await keys(ui, 'cdir:')).toEqual([])
+      await ui.press({ key: 'cdir:c:src/ui' })
+      expect(await keys(ui, 'change:')).toEqual(['change:top.txt', 'change:src/a.ts'])
     })
 
     test(`${surface}/${columns}: clean tree says so`, async ($, on) => {
@@ -969,15 +909,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
         'git', '-c', 'core.quotePath=false', 'show', '--name-status', '-M', '--diff-merges=first-parent', '--format=', HEAD_SHA,
       ])
       expect(calls.some(a => a.includes('show') && a.includes('--patch') && a.includes('--diff-merges=first-parent'))).toBe(true)
-      expect((await ui.find({ key: 'title:files' }))?.props.label).toMatch(/^ Files · 9/)
-      expect((await ui.find({ key: 'title:diff' }))?.props.label).toBe(' Diff Preview ')
-      expect(await ui.find({ key: 'title:branches' })).toBeUndefined()
-      expect(await ui.find({ key: 'title:commits' })).toBeUndefined()
+      expect((await ui.find({ key: 'title:files:chrome' }))?.text).toMatch(/^ Files · 9/)
+      expect((await ui.find({ key: 'title:diff:chrome' }))?.text).toBe(' Diff Preview ')
+      expect(await ui.find({ key: 'title:branches:chrome' })).toBeUndefined()
+      expect(await ui.find({ key: 'title:commits:chrome' })).toBeUndefined()
       expect(await keys(ui, 'commit:')).toEqual([])
+      // a tree: the top level's files before its folders
       expect(await keys(ui, 'dfile:')).toEqual([
         'dfile:CHANGELOG.md',
-        'dfile:docs/read me.md',
         'dfile:old.txt',
+        'dfile:docs/read me.md',
         'dfile:plugin/package.json',
         'dfile:src/b.ts',
       ])
@@ -1013,10 +954,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
       await ui.press({ key: 'tab:graph' })
       await ui.press({ key: 'diff:' + HEAD_SHA })
-      expect(await ui.find({ key: 'title:graph' })).toBeUndefined()
+      expect(await ui.find({ key: 'title:graph:chrome' })).toBeUndefined()
       await ui.press({ key: 'back' })
       expect(await ui.find({ key: 'back' })).toBeUndefined()
-      expect((await ui.find({ key: 'title:graph' }))?.props.label).toBe(' Graph ')
+      expect((await ui.find({ key: 'title:graph:chrome' }))?.text).toBe(' Graph ')
       expect(await markOf(ui, HEAD_SHA)).toBe('>')
       expect(await keys(ui, 'dfile:')).toEqual([])
 
@@ -1025,21 +966,20 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await ui.press({ key: 'diff:' + MERGE_SHA })
       expect(await keys(ui, 'dfile:')).toEqual(['dfile:from-develop.txt'])
       await ui.press({ key: 'back' })
-      expect((await ui.find({ key: 'title:info' }))?.props.label).toBe(' Info ')
+      expect((await ui.find({ key: 'title:info:chrome' }))?.text).toBe(' Info ')
       expect(await markOf(ui, MERGE_SHA)).toBe('>')
       await ui.press({ key: 'diff:' + MERGE_SHA })
       await ui.press({ key: 'tab:graph' })
       expect(await ui.find({ key: 'back' })).toBeUndefined()
-      expect((await ui.find({ key: 'title:graph' }))?.props.label).toBe(' Graph ')
+      expect((await ui.find({ key: 'title:graph:chrome' }))?.text).toBe(' Graph ')
     })
 
-    test(`${surface}/${columns}: in the diff view the view button toggles a tree, arrows move the file`, async ($, on) => {
+    test(`${surface}/${columns}: the diff view lists files as a tree, arrows move the file`, async ($, on) => {
       const ui = await open($, on)
       await ui.press({ key: 'diff:' + HEAD_SHA })
 
-      await ui.press({ key: 'view' })
+      expect(await ui.find({ key: 'view' })).toBeUndefined()
       expect(await keys(ui, 'cdir:')).toEqual(['cdir:c:docs', 'cdir:c:plugin', 'cdir:c:src'])
-      await ui.press({ key: 'view' })
       const scroll = (by: number) =>
         $.ui.scroll({
           component: 'Pane',
@@ -1051,8 +991,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
           contentRows: 30,
           origin: { kind: 'person' },
         } as never)
+      // files before folders: CHANGELOG.md, then old.txt
       await scroll(1)
-      expect((await ui.find({ type: 'Code' }))?.text).toContain('+spaced path')
+      expect((await ui.find({ type: 'Code' }))?.text).toContain('-gone')
     })
   }
 }
@@ -1178,7 +1119,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: dragging the Commits/Info seam moves the Info boundary`, async ($, on) => {
     const ui = await open($, on, 160, 30)
     const before = (await cellsOf(ui, 'split:info')) ?? 0
-    expect(before).toBe(Math.floor(26 * 0.6))
+    expect(before).toBe(Math.floor(28 * 0.6))
 
     await ui.pointer({ type: 'down', button: 'left', x: 3, y: 0, in: 'split:info' })
     await ui.pointer({ type: 'move', button: 'left', x: 3, y: 4, in: 'split:info' })
@@ -1236,18 +1177,18 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.pointer({ type: 'up', button: 'left', x: 3, y: 1, in: 'split:info' })
     expect(await cellsOf(ui, 'split:info')).toBe(before + 10)
     // Info keeps its title over the seam
-    expect(await ui.find({ key: 'title:info' })).toBeDefined()
+    expect(await ui.find({ key: 'title:info:chrome' })).toBeDefined()
   })
 
   test(`${surface}: Graph draws Graph over Info, the selected commit's head in Info`, async ($, on) => {
     const ui = await open($, on, 160, 30)
     await ui.press({ key: 'tab:graph' })
     await ui.press({ key: 'commit:' + HEAD_SHA })
-    expect(await ui.find({ key: 'title:graph' })).toBeDefined()
-    expect(await ui.find({ key: 'title:info' })).toBeDefined()
+    expect(await ui.find({ key: 'title:graph:chrome' })).toBeDefined()
+    expect(await ui.find({ key: 'title:info:chrome' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^908022ab43fb/ })).toBeDefined()
-    // area 27: Graph takes 65%, Info the rest
-    expect(await cellsOf(ui, 'split:graph')).toBe(Math.floor(26 * 0.65))
+    // area 28: Graph takes 65%, Info the rest
+    expect(await cellsOf(ui, 'split:graph')).toBe(Math.floor(28 * 0.65))
     expect(await ui.find({ key: 'split:info' })).toBeUndefined()
   })
 
@@ -1265,9 +1206,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await cellsOf(ui, 'split:graph')).toBe(before - 4)
     // stored as Info's share, as `info` is
     const saved = store.get('layout:git') as { graph?: number; info?: number }
-    expect(Math.round((1 - (saved.graph ?? 0)) * 26)).toBe(before - 4)
+    expect(Math.round((1 - (saved.graph ?? 0)) * 28)).toBe(before - 4)
     expect(saved.info).toBeUndefined()
-    expect(await ui.find({ key: 'title:info' })).toBeDefined()
+    expect(await ui.find({ key: 'title:info:chrome' })).toBeDefined()
 
     await ui.press({ key: 'tab:overview' })
     expect(await cellsOf(ui, 'split:info')).toBe(info)
@@ -1284,7 +1225,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         .filter(key => key.startsWith('commit:'))
     const subject = () => ui.find({ type: 'Text', text: /^908022ab43fb/ })
     expect(await subject()).toBeDefined()
-    // bodyRows 14: area 11, Graph rows 2-8, Info from row 9
+    // bodyRows 14: area 12, Graph rows 1-7, Info from row 8
     const first = (await commits())[0]
     await scrollAt($, 14, 1, 60, 12)
     expect(await subject()).toBeUndefined()
@@ -1858,11 +1799,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await isOn(ui, 'tab:graph')).toBe(true)
   })
 
-  test(`${surface}: the Settings page size, tab and change view are the defaults`, async ($, on) => {
+  test(`${surface}: the Settings page size and tab are the defaults`, async ($, on) => {
     const calls: string[][] = []
-    const { ui } = await open($, on, [['settings', { gitTab: 'changelog', changeView: 'tree', gitLimit: 50 }]], calls, many)
+    const { ui } = await open($, on, [['settings', { gitTab: 'changelog', gitLimit: 50 }]], calls, many)
     expect(await isOn(ui, 'tab:changelog')).toBe(true)
-    expect((await ui.find({ key: 'view' }))?.props.label).toBe('view: tree')
+    expect(await ui.find({ key: 'view' })).toBeUndefined()
 
     await ui.press({ key: 'tab:overview' })
     expect(calls.some(a => a[1] === 'log' && a[a.indexOf('-n') + 1] === '50')).toBe(true)

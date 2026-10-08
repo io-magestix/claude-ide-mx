@@ -10,8 +10,6 @@ export type SettingsState = {
   explorerMode?: 'files' | 'unity' // Explorer's mode for a root with none saved
   gitTab?: 'overview' | 'graph' | 'changelog' // Git's panel tab while it has none chosen
   gitLimit?: number // commits per page
-  changeView?: 'list' | 'tree' // Change Log's Files view while it has none chosen
-  layout?: 'tabs' | 'split' // `tabs`: Explorer and Git as two panes; `split`: one pane, Explorer over Git. Absent is `split`
   autoOpen?: boolean // a new session opens the panels, an exit closes them; absent is true
 }
 
@@ -44,9 +42,9 @@ export type ExplorerState = {
     version: number // bumped to reload the buffer; chunks and drafts of an older one are dropped
     conflict?: 'disk' | 'changed' // `disk`: a save found the file changed; `changed`: Claude changed it under a dirty buffer
     confirm?: 'select' | 'close' | 'mode' | 'pane' | 'new' // the unsaved-changes bar and what it was asked for
-    pending?: string // the path to select (`new`: the dir to name a file in; `pane`: `layout` opens the Settings layout after) once the unsaved-changes bar is answered
+    pending?: string // the path to select (`new`: the dir to name a file in) once the unsaved-changes bar is answered
   }
-  split?: { tree?: number; panels?: number } // dragged sizes as fractions: Files' width (absent 0.35); the split layout's Explorer height (absent 0.7)
+  split?: { tree?: number; panels?: number } // dragged sizes as fractions: Files' width (absent 0.35); the split pane's Explorer height (absent 0.7)
 }
 
 export type GitState = {
@@ -63,7 +61,6 @@ export type GitState = {
   tab?: 'overview' | 'graph' | 'changelog' // the panel view; absent is the Settings `gitTab` (`overview`). An old `'changes'` reads as `'changelog'`, any other unknown value as `overview`
   change?: string // path of the selected change
   changeOffset?: number // first change row shown
-  changeView?: 'list' | 'tree' // absent is the Settings `changeView` (`list`)
   changeCollapsed?: string[] // change folders closed (`c:src/ui`)
   diff?: string // sha open in the commit diff view; clearing it closes the view
   diffFile?: string // path of the selected file in the diff view

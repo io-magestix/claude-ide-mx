@@ -62,6 +62,9 @@ const TOPLEVELS: Record<string, string> = { '/proj': '/proj', '/mono/app': '/mon
 // Environment variables the fake answers (any other: '/home/u', as HOME).
 const ENV: Record<string, string | undefined> = {}
 
+// `git status` output per cwd; a cwd not here answers the default below.
+const STATUS: Record<string, string> = {}
+
 // Roots outside any repo (every git call there fails), and repos before their
 // first commit (no HEAD to name; `symbolic-ref` answers `trunk`).
 const NOT_REPOS = new Set<string>()
@@ -199,9 +202,10 @@ const fake = (
         },
       }
     }
-    // `git -C <root> rev-parse --show-toplevel`: the repo holding the root
+    // `git [-C <root>] rev-parse --show-toplevel`: the repo holding the root
+    // (or the run's cwd)
     if (e.argv[0] === 'git' && e.argv.includes('--show-toplevel')) {
-      const top = TOPLEVELS[e.argv[2] ?? '']
+      const top = TOPLEVELS[(e.argv[1] === '-C' ? e.argv[2] : e.init?.cwd) ?? '']
 
       return {
         value: {
@@ -224,7 +228,7 @@ const fake = (
       return {
         value: {
           exitCode: 0,
-          stdout: e.argv[1] === 'rev-parse' ? 'main\n' : '?? new.ts\0 M a.ts\0 D b.ts\0 M c.ts\0',
+          stdout: e.argv[1] === 'rev-parse' ? 'main\n' : (STATUS[gitCwd] ?? '?? new.ts\0 M a.ts\0 D b.ts\0 M c.ts\0'),
           stderr: '',
           isStdoutTruncated: false,
           isStderrTruncated: false,
@@ -281,9 +285,9 @@ const PRESENTATION = { isFullscreen: true, columns: 120 }
 type Pane = Mounted<'terminal' | 'desktop', 'Pane'>
 
 // The Edit title as read: the unsaved `●` (a Text on the border before the
-// title Button) and the Button's label, e.g. ' ● Edit '.
+// title chip) and the chip's label, e.g. ' ● Edit '.
 const titleOf = async (ui: Pane): Promise<string> => {
-  const label = String((await ui.find({ key: 'title:edit' }))?.props.label)
+  const label = String((await ui.find({ key: 'title:edit:chrome' }))?.text)
   const mark = await ui.find({ type: 'Text', text: '●' })
 
   return (mark === undefined ? '' : ' ●') + label
@@ -490,39 +494,71 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(copied).toEqual(['app/a.ts'])
   })
 
-  test(`${surface}: footer shows dir, branch and change counts`, async ($, on) => {
+  test(`${surface}: rows carry change marks: + added, * edited, * on a dir above a change`, async ($, on) => {
     mock.store(on)
-    fake(on)
-    await $.session.start(start(surface))
-    const ui = await $.ui.mount({
-      plugin: PLUGIN,
-      surface,
-      component: 'Pane',
-      props: PROPS,
-      requestId: 'ide-explorer',
-      viewport: VIEWPORT,
-    })
+    const calls: string[][] = []
+    fake(on, calls)
+    STATUS[CWD] = ' M src/main.ts\0?? notes.txt\0 D gone.txt\0'
+    try {
+      await $.session.start(start(surface))
+      const ui = await $.ui.mount({
+        plugin: PLUGIN,
+        surface,
+        component: 'Pane',
+        props: PROPS,
+        requestId: 'ide-explorer',
+        viewport: VIEWPORT,
+      })
+      const rowOf = async (path: string) =>
+        (await ui.find({ key: 'item:' + path }))?.props.props as
+          | { change?: string; colors?: { change?: string } }
+          | undefined
 
-    expect(await ui.find({ type: 'Text', text: ' ' + CWD })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
-    for (const count of ['+1', '~2', '-1']) expect(await ui.find({ type: 'Text', text: count })).toBeDefined()
+      // the Explorer asks for whole untracked dirs as one entry
+      expect(calls.some(argv => argv[1] === 'status' && argv.includes('--untracked-files=normal'))).toBe(true)
+      expect((await rowOf('/proj/notes.txt'))?.change).toBe('+')
+      expect((await rowOf('/proj/src'))?.change).toBe('*')
+      expect((await rowOf('/proj/out.log'))?.change).toBeUndefined()
+      expect((await rowOf('/proj/notes.txt'))?.colors?.change).toBe(THEMES.claude.success)
+      expect((await rowOf('/proj/src'))?.colors?.change).toBe(THEMES.claude.warning)
+      await ui.post({ hit: 'arrow' }, { in: 'item:/proj/src' })
+      expect((await rowOf('/proj/src/main.ts'))?.change).toBe('*')
+      // drawn after the name
+      expect(await ui.find({ type: 'Text', text: ' +', in: 'item:/proj/notes.txt' })).toBeDefined()
+    } finally {
+      delete STATUS[CWD]
+    }
   })
 
-  test(`${surface}: sections are titled, pressing a title copies its name`, async ($, on) => {
+  test(`${surface}: a dir untracked as a whole is + with everything under it`, async ($, on) => {
     mock.store(on)
     fake(on)
-    const copied: string[] = []
-    const toasts: string[] = []
-    on('ui.copy', (_$, e) => {
-      copied.push(e.text)
+    STATUS[CWD] = '?? src/\0'
+    try {
+      await $.session.start(start(surface))
+      const ui = await $.ui.mount({
+        plugin: PLUGIN,
+        surface,
+        component: 'Pane',
+        props: PROPS,
+        requestId: 'ide-explorer',
+        viewport: VIEWPORT,
+      })
+      const changeOf = async (path: string) =>
+        ((await ui.find({ key: 'item:' + path }))?.props.props as { change?: string } | undefined)?.change
 
-      return { value: { isCopied: true } }
-    })
-    on('ui.toast', (_$, e) => {
-      toasts.push(e.text)
+      expect(await changeOf('/proj/src')).toBe('+')
+      await ui.post({ hit: 'arrow' }, { in: 'item:/proj/src' })
+      expect(await changeOf('/proj/src/main.ts')).toBe('+')
+      expect(await changeOf('/proj/notes.txt')).toBeUndefined()
+    } finally {
+      delete STATUS[CWD]
+    }
+  })
 
-      return { value: undefined }
-    })
+  test(`${surface}: sections are titled by text; pressing a title copies nothing`, async ($, on) => {
+    mock.store(on)
+    fake(on)
     await $.session.start(start(surface))
     const ui = await $.ui.mount({
       plugin: PLUGIN,
@@ -533,11 +569,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
       viewport: VIEWPORT,
     })
 
-    expect((await ui.find({ key: 'title:files' }))?.props.label).toBe(' Files ')
-    expect((await ui.find({ key: 'title:preview' }))?.props.label).toBe(' Preview ')
-    await ui.press({ key: 'title:preview' })
-    expect(copied).toEqual(['Explorer › Preview'])
-    expect(toasts.at(-1)).toBe('Copied: Explorer › Preview')
+    // the label is a Text in its chip; no Button there to press
+    for (const [key, text] of [['title:files', ' Files '], ['title:preview', ' Preview ']] as const) {
+      const chip = await ui.find({ key: key + ':chrome' })
+      expect(chip?.text).toBe(text)
+      expect(await ui.find({ type: 'Button', key })).toBeUndefined()
+      expect((await ui.findAll({ type: 'Button' })).some(button => button.text === text)).toBe(false)
+    }
+    // no footer: the root, branch and counts are Git's to show
+    expect(await ui.find({ key: 'footer:dir' })).toBeUndefined()
+    expect(await ui.find({ key: 'footer:counts' })).toBeUndefined()
   })
 
   test(`${surface}: binary shows metadata, ignored entry is dimmed`, async ($, on) => {
@@ -787,7 +828,8 @@ test('focus moving past the window edge scrolls the tree', async ($, on) => {
     plugin: PLUGIN,
     surface: 'terminal',
     component: 'Pane',
-    props: { ...PROPS, scroll: { offset: 0, bodyRows: 10 } },
+    // 2 header rows, then Files' frame around 4 rows
+    props: { ...PROPS, scroll: { offset: 0, bodyRows: 8 } },
     requestId: 'ide-explorer',
     viewport: VIEWPORT,
   })
@@ -853,27 +895,6 @@ test('session.start registers /ide-panels only', async ($, on) => {
   await $.session.start(start('terminal'))
 
   expect(names).toEqual(['ide-panels'])
-})
-
-test('/ide-panels with the tabs layout opens explorer and git, explorer focused in front', async ($, on) => {
-  settingsStore(on, [['settings', { layout: 'tabs', autoOpen: false }]])
-  const opened: unknown[] = []
-  fake(on, [], opened)
-  on('ui.panes', () => ({ value: [] as never }))
-  await $.session.start(start('terminal'))
-  const ran = await $.command.run({
-    command: 'ide-panels',
-    args: '',
-    origin: { kind: 'composer' },
-    presentation: PRESENTATION,
-  })
-
-  expect(ran.text).toContain('Explorer and Git')
-  expect(opened).toEqual([
-    { id: 'ide-explorer', focus: undefined },
-    { id: 'ide-git', focus: undefined },
-    { id: 'ide-explorer', focus: true },
-  ])
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -1031,7 +1052,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       plugin: PLUGIN,
       surface,
       component: 'Pane',
-      props: { ...PROPS, scroll: { offset: 0, bodyRows: 15 } },
+      // 2 header rows, then frames around 9 rows
+      props: { ...PROPS, scroll: { offset: 0, bodyRows: 13 } },
       requestId: 'ide-explorer',
       viewport: VIEWPORT,
     })
@@ -1348,27 +1370,6 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await settle()
     expect(FILES['/ed5/a.ts']).toBe('xone\n')
     expect(closed).toBe(1)
-  })
-
-  test(`${surface}: closing the explorer closes Git too`, { plugins: [closer] }, async ($, on) => {
-    fake(on)
-    const open = new Set(['ide-explorer', 'ide-git'])
-    on('ui.panes', () => ({ value: [...open].map(id => ({ id, isFocused: false })) as never }))
-    const closed: string[] = []
-    on('ui.close', (_$, e) => {
-      closed.push(e.id)
-      open.delete(e.id)
-
-      return { value: undefined }
-    })
-    await $.session.start({ cwd: CWD, surface, isInteractive: true })
-    await $.command.run({
-      command: 'close-explorer',
-      args: '',
-      origin: { kind: 'composer' },
-      presentation: PRESENTATION,
-    })
-    expect(closed).toEqual(['ide-explorer', 'ide-git'])
   })
 
   test(`${surface}: session.start restores the draft`, async ($, on) => {
@@ -2415,7 +2416,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: 'notes.txt' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'out.log' })).toBeDefined()
     expect(await ui.find({ type: 'Code' })).toBeUndefined()
-    expect((await ui.find({ key: 'title:preview' }))?.props.label).toBe(' Preview ')
+    expect((await ui.find({ key: 'title:preview:chrome' }))?.text).toBe(' Preview ')
     expect(await ui.find({ key: 'edit' })).toBeUndefined()
     expect(await ui.find({ key: 'new' })).toBeUndefined()
 
@@ -2633,9 +2634,9 @@ test('terminal: a PNG draws as an Image of the file itself, fitted to Preview, w
   const image = await ui.find({ type: 'Image' })
   expect(image?.props.key).toBe('preview:image')
   expect(image?.props.source).toEqual({ file: '/img/pic.png', format: 'png', generation: MTIME })
-  // 200x100 px (aspect 2) in Preview's 75x13 room left under the info row
-  expect(image?.props.columns).toBe(52)
-  expect(image?.props.rows).toBe(13)
+  // 200x100 px (aspect 2) in Preview's 75x15 room left under the info row
+  expect(image?.props.columns).toBe(60)
+  expect(image?.props.rows).toBe(15)
   expect(await ui.find({ type: 'Text', text: /200×100 px · 300 B/ })).toBeDefined()
   expect(converts(calls)).toEqual([])
   // no scrollbars, no source toggle, no edit for a raster image
@@ -3038,7 +3039,7 @@ const README = [
 ].join('\n')
 // Preview's rendered width at PROPS: 75 inner columns less the vertical bar.
 const MD_WIDTH = 74
-const MD_ROWS = 14 // Preview's rows at bodyRows 20
+const MD_ROWS = 16 // Preview's rows at bodyRows 20
 const readmeRows = () => layout(parse(README), MD_WIDTH)
 
 const markdowns = async <S extends 'terminal' | 'desktop' | 'vscode'>(
@@ -3214,21 +3215,21 @@ test('terminal: a local image in markdown draws as an Image over the rows it res
   // the image row became 12: the total grows by 11 and the text starts after them
   const laid = layout(parse(PICTURED), MD_WIDTH).rows
   expect((await ui.find({ key: 'sb:preview' }))?.props.props).toMatchObject({ total: laid.length + 11 })
-  expect(await ui.find({ type: 'Text', text: 'para 1' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'para 2' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'para 2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'para 3' })).toBeUndefined()
   // scrolled into the picture: its placeholder row, the text below moves up
   await scroll($, 'ide-explorer', 2, { column: 80, row: 3 })
   expect(await ui.find({ type: 'Image' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '🖼 logo' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'para 2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'para 3' })).toBeDefined()
 })
 
 test('desktop: a markdown image is its placeholder row', async ($, on) => {
   const { ui } = await markdowns($, on, 'desktop', PICTURED)
   expect(await ui.find({ type: 'Image' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '🖼 logo' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'para 6' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'para 7' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'para 7' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'para 8' })).toBeUndefined()
 })
 
 test('terminal: a wide code block in a tall Preview draws as several Codes, each under 10000 chars, one row per line', async ($, on) => {
@@ -3271,25 +3272,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
 // ------------------------------------------------------------ Split layout
 
-test('/ide-panels with no layout saved opens the split pane', async ($, on) => {
+test('/ide-panels opens the split pane, a fifth of the window wide', async ($, on) => {
   settingsStore(on, [['settings', { autoOpen: false }]])
-  const opened: unknown[] = []
-  fake(on, [], opened)
-  on('ui.panes', () => ({ value: [] as never }))
-  await $.session.start(start('terminal'))
-  const ran = await $.command.run({
-    command: 'ide-panels',
-    args: '',
-    origin: { kind: 'composer' },
-    presentation: { isFullscreen: true, columns: 200 },
-  })
-
-  expect(ran.text).toContain('Explorer over Git')
-  expect(opened).toEqual([{ id: 'ide-split', focus: true, columns: 40 }])
-})
-
-test('/ide-panels with the split layout opens one pane, a fifth of the window wide', async ($, on) => {
-  settingsStore(on, [['settings', { layout: 'split', autoOpen: false }]])
   const opened: unknown[] = []
   fake(on, [], opened)
   on('ui.panes', () => ({ value: [] as never }))
@@ -3314,6 +3298,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     on('ui.scroll', () => ({}))
     const names = Array.from({ length: 40 }, (_, i) => `s${String(i).padStart(2, '0')}.txt`)
     TREE['/many3'] = names.map(name => entry(name, 'file'))
+    TOPLEVELS['/many3'] = '/many3'
     for (const name of names) FILES['/many3/' + name] = 'x\n'
     await $.session.start({ cwd: '/many3', surface, isInteractive: true })
 
@@ -3337,7 +3322,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'split:panels' })).toBeDefined()
     expect(await ui.find({ key: 'tab:files' })).toBeDefined()
     expect(await ui.find({ key: 'refresh' })).toBeDefined()
-    expect(await ui.find({ key: 'git/refresh' })).toBeDefined()
+    expect(await ui.find({ key: 'git/fetch' })).toBeDefined()
+    // the root, branch and counts: only Git's footer
+    expect(await ui.find({ key: 'git/footer:counts' })).toBeDefined()
+    expect(await ui.find({ key: 'footer:counts' })).toBeUndefined()
     // one ⚙, the Explorer's
     expect(await ui.find({ key: 'settings' })).toBeDefined()
     expect(await ui.find({ key: 'git/settings' })).toBeUndefined()
@@ -3347,13 +3335,15 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 
   test(`${surface}: a press in Git's half runs Git's handler`, async ($, on) => {
-    const calls: string[][] = []
-    const ui = await mountSplit($, on, new Map(), calls)
-    const gitCalls = () => calls.filter(argv => argv[0] === 'git').length
-    const before = gitCalls()
-    // refresh drops Git's caches, so the redraw asks git again
-    await ui.press({ key: 'git/refresh' })
-    expect(gitCalls()).toBeGreaterThan(before)
+    const ui = await mountSplit($, on)
+    const isActive = async (id: string) =>
+      surface === 'terminal'
+        ? (await ui.find({ key: 'git/tab:' + id + ':chrome' }))?.props.backgroundColor === onDefaultFg(THEMES.claude.accent)
+        : (await ui.find({ key: 'git/tab:' + id }))?.props.variant === 'primary'
+    expect(await isActive('overview')).toBe(true)
+    await ui.press({ key: 'git/tab:graph' })
+    expect(await isActive('graph')).toBe(true)
+    expect(await isActive('overview')).toBe(false)
   })
 
   test(`${surface}: dragging the split pane's seam resizes both halves; the release saves it`, async ($, on) => {
@@ -3380,71 +3370,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await firstRow(ui)).not.toBe(top)
   })
 
-  test(`${surface}: Settings layout split, then done, swaps the two panes for the split pane`, async ($, on) => {
-    const store = settingsStore(on, [['settings', { layout: 'tabs' }]])
-    const opened: unknown[] = []
-    fake(on, [], opened)
-    const open = new Set(['ide-explorer', 'ide-git'])
-    on('ui.panes', () => ({ value: [...open].map(id => ({ id, isFocused: true })) as never }))
-    const closed: string[] = []
-    on('ui.close', (_$, e) => {
-      closed.push(e.id)
-      open.delete(e.id)
 
-      return { value: undefined }
-    })
-    on('ui.focus', () => ({}))
-    await $.session.start(start(surface))
-    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })
-
-    await ui.press({ key: 'settings' })
-    await ui.press({ key: 'settings:layout:split' })
-    // nothing moves before done
-    expect(closed).toEqual([])
-    await ui.press({ key: 'settings:done' })
-    expect(closed).toEqual(['ide-explorer', 'ide-git'])
-    // a fifth of the 120 columns the drawing measured
-    expect(opened).toContainEqual({ id: 'ide-split', focus: true, columns: 24 })
-    expect((store.get('settings') as { layout?: string }).layout).toBe('split')
-  })
-
-  test(`${surface}: Settings layout tabs, then done, swaps the split pane for the two panes`, async ($, on) => {
-    const store = settingsStore(on, [['settings', { layout: 'split' }]])
-    const opened: unknown[] = []
-    fake(on, [], opened)
-    const open = new Set(['ide-split'])
-    on('ui.panes', () => ({ value: [...open].map(id => ({ id, isFocused: true })) as never }))
-    const closed: string[] = []
-    on('ui.close', (_$, e) => {
-      closed.push(e.id)
-      open.delete(e.id)
-
-      return { value: undefined }
-    })
-    on('ui.focus', () => ({}))
-    await $.session.start(start(surface))
-    const ui = await $.ui.mount({
-      plugin: PLUGIN,
-      surface,
-      component: 'Pane',
-      props: { ...PROPS, title: 'IDE', scroll: { offset: 0, bodyRows: 41 } },
-      requestId: 'ide-split',
-      viewport: VIEWPORT,
-    })
-
-    await ui.press({ key: 'settings' })
-    // the sheet covers the whole split pane
-    expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
-    await ui.press({ key: 'settings:layout:tabs' })
-    await ui.press({ key: 'settings:done' })
-    expect(closed).toEqual(['ide-split'])
-    expect(opened).toEqual([
-      { id: 'ide-explorer', focus: undefined, columns: undefined },
-      { id: 'ide-git', focus: undefined, columns: undefined },
-      { id: 'ide-explorer', focus: true, columns: undefined },
-    ])
-    expect((store.get('settings') as { layout?: string }).layout).toBe('tabs')
-  })
 }
 
 // ------------------------------------------------------------ Repo or none
@@ -3473,8 +3399,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     return { ui, clock }
   }
 
-  test(`${surface}: before the first commit the footer still names the branch and counts`, async ($, on) => {
+  test(`${surface}: before the first commit Git's footer still names the branch and counts`, async ($, on) => {
     UNBORN.add('/unborn')
+    TOPLEVELS['/unborn'] = '/unborn'
     const { ui } = await mountSplitAt($, on, '/unborn')
     expect(await ui.find({ type: 'Text', text: 'trunk' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '+1' })).toBeDefined()
@@ -3482,11 +3409,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(12)
   })
 
-  test(`${surface}: outside a repo Git's half keeps 3 rows, the Explorer the rest, no seam to drag`, async ($, on) => {
+  test(`${surface}: outside a repo Git's half keeps 2 rows, the Explorer the rest, no seam to drag`, async ($, on) => {
     NOT_REPOS.add('/norepo')
     const { ui } = await mountSplitAt($, on, '/norepo')
-    expect((await ui.find({ key: 'split:explorer' }))?.props.height).toBe(37)
-    expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(3)
+    expect((await ui.find({ key: 'split:explorer' }))?.props.height).toBe(38)
+    expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(2)
     expect(await ui.find({ key: 'split:panels' })).toBeUndefined()
     // a plain rule instead
     expect(await ui.find({ type: 'Text', text: '─'.repeat(PROPS.bodyColumns) })).toBeDefined()
@@ -3498,10 +3425,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
     NOT_REPOS.add(root)
     on('ui.panes', () => ({ value: [{ id: 'ide-split', isFocused: true }] as never }))
     const { ui, clock } = await mountSplitAt($, on, root, new Map<string, unknown>([['layout:explorer', { panels: 0.5 }]]))
-    expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(3)
+    expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(2)
     // still none on the first look
     await clock.advance(2000)
-    expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(3)
+    expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(2)
 
     // `git init`
     NOT_REPOS.delete(root)
@@ -3511,7 +3438,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(12)
     expect((await ui.find({ key: 'split:explorer' }))?.props.height).toBe(28)
     expect(await ui.find({ key: 'split:panels' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
+    // Git's half draws the repo, its footer too
+    expect(await ui.find({ type: 'Text', text: 'Not a git repository' })).toBeUndefined()
+    expect(await ui.find({ key: 'git/footer:counts' })).toBeDefined()
   })
 }
 
@@ -3533,47 +3462,9 @@ const panesFake = (on: On, initial: string[]) => {
 }
 const runPanels = ($: Engine) =>
   $.command.run({ command: 'ide-panels', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 200 } })
-const TABS_OPENED = [
-  { id: 'ide-explorer', focus: undefined, columns: undefined },
-  { id: 'ide-git', focus: undefined, columns: undefined },
-  { id: 'ide-explorer', focus: true, columns: undefined },
-]
 const SPLIT_OPENED = [{ id: 'ide-split', focus: true, columns: 40 }]
 
-test('/ide-panels over open tabs (split layout): both tabs close, then the split pane opens', async ($, on) => {
-  settingsStore(on)
-  const opened: unknown[] = []
-  fake(on, [], opened)
-  const panes = panesFake(on, ['ide-explorer', 'ide-git'])
-  await $.session.start(start('terminal'))
-  await runPanels($)
-  expect(panes.closed).toEqual(['ide-explorer', 'ide-git'])
-  expect(opened).toEqual(SPLIT_OPENED)
-})
-
-test('/ide-panels over the open split pane (tabs layout): it closes, then both tabs open', async ($, on) => {
-  settingsStore(on, [['settings', { layout: 'tabs' }]])
-  const opened: unknown[] = []
-  fake(on, [], opened)
-  const panes = panesFake(on, ['ide-split'])
-  await $.session.start(start('terminal'))
-  await runPanels($)
-  expect(panes.closed).toEqual(['ide-split'])
-  expect(opened).toEqual(TABS_OPENED)
-})
-
-test('/ide-panels with one tab left open opens both, closing nothing', async ($, on) => {
-  settingsStore(on, [['settings', { layout: 'tabs' }]])
-  const opened: unknown[] = []
-  fake(on, [], opened)
-  const panes = panesFake(on, ['ide-explorer'])
-  await $.session.start(start('terminal'))
-  await runPanels($)
-  expect(panes.closed).toEqual([])
-  expect(opened).toEqual(TABS_OPENED)
-})
-
-test('/ide-panels with its layout already open only raises it', async ($, on) => {
+test('/ide-panels with the split pane open only raises it', async ($, on) => {
   settingsStore(on)
   const opened: unknown[] = []
   fake(on, [], opened)
@@ -3584,46 +3475,26 @@ test('/ide-panels with its layout already open only raises it', async ($, on) =>
   expect(opened).toEqual(SPLIT_OPENED)
 })
 
-// Another plugin that closes Git alone.
-const gitCloser = {
-  name: 'git-closer',
+// Another plugin that closes the split pane.
+const splitCloser = {
+  name: 'split-closer',
   register: (on: On) => {
-    on('command.run', { command: 'close-git' }, async $ => {
-      await $.ui.close({ id: 'ide-git' })
+    on('command.run', { command: 'close-split' }, async $ => {
+      await $.ui.close({ id: 'ide-split' })
 
       return { text: '' }
     })
   },
 }
-test('another plugin closing Git closes the Explorer too, the Explorer first', { plugins: [gitCloser] }, async ($, on) => {
-  fake(on)
-  const panes = panesFake(on, ['ide-explorer', 'ide-git'])
-  await $.session.start(start('terminal'))
-  await $.command.run({ command: 'close-git', args: '', origin: { kind: 'composer' }, presentation: PRESENTATION })
-  expect(panes.closed).toEqual(['ide-explorer', 'ide-git'])
-  expect([...panes.open]).toEqual([])
-})
-
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`${surface}: /ide-panels over unsaved text closes and opens nothing until the bar is answered`, async ($, on) => {
-    const panes = panesFake(on, ['ide-explorer', 'ide-git'])
-    const opened: unknown[] = []
-    const { ui, settle } = await editing($, on, surface, '/ed-one', { 'a.ts': 'one\n' }, opened)
+  test(`${surface}: closing the split pane over unsaved text puts up the bar instead`, { plugins: [splitCloser] }, async ($, on) => {
+    const panes = panesFake(on, ['ide-split'])
+    const { ui, settle } = await editing($, on, surface, '/ed-split', { 'a.ts': 'one\n' })
     await ui.key({ key: 'x', in: 'editor' })
     await settle()
-
-    const ran = await runPanels($)
-    expect(ran.text).toContain('Unsaved changes')
+    await $.command.run({ command: 'close-split', args: '', origin: { kind: 'composer' }, presentation: PRESENTATION })
     expect(panes.closed).toEqual([])
-    expect(opened).toEqual([])
     expect(await ui.find({ key: 'ask:save' })).toBeDefined()
-
-    await ui.press({ key: 'ask:save' })
-    await settle()
-    expect(FILES['/ed-one/a.ts']).toBe('xone\n')
-    // both go, then the split pane opens
-    expect(panes.closed).toEqual(['ide-explorer', 'ide-git'])
-    expect(opened).toEqual(SPLIT_OPENED)
   })
 }
 
@@ -3647,19 +3518,10 @@ test('with no width seen yet it asks for the dock\'s own share', async ($, on) =
   expect(opened).toEqual([{ id: 'ide-split', focus: undefined, columns: undefined }])
 })
 
-test('in the tabs layout a new session opens both tabs, neither focused', async ($, on) => {
-  settingsStore(on, [['settings', { layout: 'tabs' }]])
-  const opened: unknown[] = []
-  fake(on, [], opened)
-  panesFake(on, [])
-  await $.session.start(start('terminal'))
-  expect(opened).toEqual(TABS_OPENED.map(o => ({ ...o, focus: undefined })))
-})
-
 for (const [name, entries, isInteractive, initial] of [
   ['with autoOpen off', [['settings', { autoOpen: false }]], true, []],
   ['for a -p run', [], false, []],
-  ['while a pane of ours is open already', [], true, ['ide-explorer']],
+  ['while a pane of ours is open already', [], true, ['ide-split']],
 ] as const) {
   test(`a new session opens nothing ${name}`, async ($, on) => {
     settingsStore(on, entries.map(([k, v]) => [k, v] as [string, unknown]))
@@ -3695,11 +3557,11 @@ for (const reason of ['prompt_input_exit', 'logout', 'other', 'clear', 'resume']
   test(`a session ending by ${reason} ${isExit ? 'closes' : 'leaves'} the panels`, async ($, on) => {
     settingsStore(on)
     fake(on)
-    const panes = panesFake(on, ['ide-explorer', 'ide-git'])
+    const panes = panesFake(on, ['ide-split'])
     on('session.end', () => ({ sessionId: 's1' }))
     await $.session.start(start('terminal'))
     await $.session.end({ reason, sessionId: 's1', resume: { id: 's1' } })
-    expect(panes.closed).toEqual(isExit ? ['ide-explorer', 'ide-git'] : [])
+    expect(panes.closed).toEqual(isExit ? ['ide-split'] : [])
   })
 }
 
@@ -3717,7 +3579,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: the Session switch turns autoOpen off; done saves it`, async ($, on) => {
     const store = settingsStore(on)
     fake(on)
-    panesFake(on, ['ide-explorer', 'ide-git'])
+    panesFake(on, ['ide-split'])
     on('ui.focus', () => ({}))
     await $.session.start(start(surface))
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })

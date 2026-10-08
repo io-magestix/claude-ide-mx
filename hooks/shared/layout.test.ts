@@ -16,8 +16,8 @@ test('splitRows: the Explorer takes 70% of the rows besides the seam, Git the re
   // each half keeps its minimum
   expect(splitRows(41, 0.99).bottom).toBe(MIN_HALF_ROWS)
   expect(splitRows(41, 0.01).top).toBe(MIN_HALF_ROWS)
-  // outside a repo Git keeps its 3 rows, whatever the fraction
-  expect(splitRows(41, 0.5, false)).toEqual({ top: 37, bottom: 3, gitTop: 38 })
+  // outside a repo Git keeps its 2 rows, whatever the fraction
+  expect(splitRows(41, 0.5, false)).toEqual({ top: 38, bottom: 2, gitTop: 39 })
 })
 
 test('prefixKeys: every key at any depth, everything else kept', () => {

@@ -21,8 +21,6 @@ export const DEFAULTS = {
   explorerMode: 'files' as 'files' | 'unity',
   gitTab: 'overview' as 'overview' | 'graph' | 'changelog',
   gitLimit: 200,
-  changeView: 'list' as 'list' | 'tree',
-  layout: 'split' as 'tabs' | 'split',
   autoOpen: true,
 } as const
 
@@ -46,10 +44,6 @@ export const settingsOf = (raw: unknown): SettingsState | undefined => {
   const gitTab = oneOf(r.gitTab, ['overview', 'graph', 'changelog'] as const)
   if (gitTab !== undefined) out.gitTab = gitTab
   if (typeof r.gitLimit === 'number' && Number.isInteger(r.gitLimit) && r.gitLimit > 0) out.gitLimit = r.gitLimit
-  const changeView = oneOf(r.changeView, ['list', 'tree'] as const)
-  if (changeView !== undefined) out.changeView = changeView
-  const layout = oneOf(r.layout, ['tabs', 'split'] as const)
-  if (layout !== undefined) out.layout = layout
   if (typeof r.autoOpen === 'boolean') out.autoOpen = r.autoOpen
 
   return out
@@ -118,11 +112,10 @@ export const GIT_LIMITS = [50, 100, 200, 500] as const
 export const keysError = (text: string): string | undefined =>
   mergeKeymap(KEYMAPS.jetbrains, text).errors[0]?.replace(/^editorKeys: /, '')
 
-// The git state with the Settings defaults where it has none: the tab, the
-// change view and the commits shown (`limit`, absent until paged).
+// The git state with the Settings defaults where it has none: the tab and
+// the commits shown (`limit`, absent until paged).
 export const withGitDefaults = (s: GitState, settings: SettingsState | undefined): GitState & { limit: number } => ({
   ...s,
   tab: s.tab ?? settings?.gitTab,
-  changeView: s.changeView ?? settings?.changeView,
   limit: s.limit ?? settings?.gitLimit ?? DEFAULTS.gitLimit,
 })

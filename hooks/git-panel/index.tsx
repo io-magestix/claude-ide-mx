@@ -9,7 +9,7 @@ import { DEFAULTS, SETTINGS_KEY, keysError, resolveTheme, withGitDefaults } from
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyScheme, supportedTerminal, tabbyConfigPaths, themeEnv, themeNote } from '../shared/term-theme'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
-import { EXPLORER_PANE, GIT_PREFIX, SPLIT_PANE, SPLIT_TITLE, gitKeyOf, prefixKeys, seat, splitColumns } from '../shared/layout'
+import { GIT_PREFIX, SPLIT_PANE, gitKeyOf, prefixKeys, seat } from '../shared/layout'
 import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
 import { glyphColor, lanePalette } from './git-theme'
 import {
@@ -178,9 +178,6 @@ const resetLayout = async ($: EngineInterface): Promise<void> => {
   await $.ui.toast('Layout reset')
 }
 
-const gitSeesPane = async ($: EngineInterface, id: string): Promise<boolean> =>
-  (await $.ui.panes()).some(pane => pane.id === id)
-
 // As the explorer's explorerThemeEnv (the validator follows `$` within one
 // file): what an outside theme draws from, into the shared `themeEnv`.
 const gitThemeEnv = async ($: EngineInterface, source: string): Promise<void> => {
@@ -216,25 +213,9 @@ const gitThemeEnv = async ($: EngineInterface, source: string): Promise<void> =>
   }
 }
 
-// Saved; the split layout, chosen on this sheet, is seated now: the Explorer closes
-// first (Git with it), unless its unsaved-changes bar holds it, which then
-// seats the layout once answered.
 const settingsDone = async ($: EngineInterface): Promise<void> => {
-  const before = (await read($, settingsUi)).before
-  const now = await read($, settings)
-  await $.store.set(SETTINGS_KEY, now)
+  await $.store.set(SETTINGS_KEY, await read($, settings))
   await update($, settingsUi, () => ({}))
-  const layout = now.layout ?? DEFAULTS.layout
-  if (layout !== 'split' || layout === (before?.layout ?? DEFAULTS.layout) || host === SPLIT_PANE) return
-  seat.switching = layout
-  try {
-    if (await gitSeesPane($, EXPLORER_PANE)) await $.ui.close({ id: EXPLORER_PANE })
-    if (await gitSeesPane($, EXPLORER_PANE)) return
-  } finally {
-    seat.switching = undefined
-  }
-  if (await gitSeesPane($, PANE)) await $.ui.close({ id: PANE })
-  await $.ui.open({ id: SPLIT_PANE, title: SPLIT_TITLE, focus: true, columns: splitColumns(seat.windowColumns) })
 }
 
 const settingsCancel = async ($: EngineInterface): Promise<void> => {
@@ -526,36 +507,17 @@ const changeDetailsOf = async (
   return shown
 }
 
-// The Files list as drawn now: the cached status, or in the diff view the open
-// commit's files.
+// The Files list as drawn now, a tree grouped by `/`: the cached status, or in
+// the diff view the open commit's files.
 const rowsOf = (state: GitState): ChangeRow[] =>
   changeRows(
     state.diff === undefined ? (statusCache ?? []) : (diffCache.get(state.diff)?.files ?? []),
-    state.changeView ?? 'list',
+    'tree',
     new Set(state.changeCollapsed ?? []),
   )
 
 const fit = (text: string, width: number): string =>
   text.length > width ? text.slice(0, Math.max(1, width - 1)) + '…' : text
-
-// Last status text set; null: nothing set yet (always set the first time).
-let shown: string | undefined | null = null
-
-// Current branch (a short sha when detached) in the status line; cleared
-// outside a repo. Skips the update when the text is unchanged.
-const showBranch = async ($: EngineInterface, cwd: string): Promise<void> => {
-  let name = (await run($, cwd, ['git', 'rev-parse', '--abbrev-ref', 'HEAD']))?.trim()
-  if (name === 'HEAD') {
-    name = (await run($, cwd, ['git', 'rev-parse', '--short', 'HEAD']))?.trim()
-  } else if (name === undefined) {
-    // A repo before its first commit still names its branch.
-    name = (await run($, cwd, headNameArgv()))?.trim()
-  }
-  const text = name === undefined || name === '' ? undefined : '⎇ ' + name
-  if (text === shown) return
-  shown = text
-  await $.ui.status(text)
-}
 
 // The fetch or pull running now; a second press waits for it to finish.
 let busy: RemoteAction | undefined
@@ -580,7 +542,6 @@ const remote = async ($: EngineInterface, action: RemoteAction): Promise<void> =
   }
   busy = undefined
   clear()
-  await showBranch($, cwd)
   await $.ui.toast(text)
   $.ui.invalidate('ui.render')
 }
@@ -591,19 +552,6 @@ const touched = ($: EngineInterface): void => {
   changeCache.clear()
   hasHead = undefined
   $.ui.invalidate('ui.render')
-}
-
-// A section's name, as the user can quote it in chat; pressing a title copies it.
-const copyName = async (
-  $: EngineInterface,
-  name: string,
-  surface: Parameters<EngineInterface['ui']['copy']>[0]['surface'],
-): Promise<void> => {
-  const text = 'Git › ' + name
-  const copied = await $.ui.copy({ text, surface })
-  await $.ui.toast(
-    copied.isCopied ? `Copied: ${text}` : `Copy failed: ${copied.reason}`,
-  )
 }
 
 // A full ref (or a folder's prefix) copied by a double-click on a Branches row.
@@ -643,19 +591,10 @@ const keyOf = (commit: Commit): string => 'commit:' + commit.sha
 
 export const register = (on: On, options?: PluginOptions): void => {
   pluginOptions = options
-  // The explorer owns the plugin's only session.start hook, so the status line
-  // is first set on the first prompt (or Bash call) of a session.
-  on('prompt.submit', async ($, e, next) => {
-    await showBranch($, await $.session.root())
-
-    return next(e)
-  })
-
   // Refresh after Bash may have run git; never denies or rewrites the call.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
     clear()
-    await showBranch($, await $.session.root())
     $.ui.invalidate('ui.render')
 
     return ran
@@ -1038,17 +977,6 @@ export const register = (on: On, options?: PluginOptions): void => {
             {settingsButton}
           </Box>
           <Text color={t.muted}>Not a git repository</Text>
-          {Btn(elements, t, {
-            key: 'refresh',
-            label: 'refresh',
-            variant: 'ghost',
-            size: 'sm',
-            surface,
-            onPress: asleep(() => {
-              clear()
-              $.ui.invalidate('ui.render')
-            }),
-          })}
           {settingsSheet}
         </Box>
       )
@@ -1065,14 +993,13 @@ export const register = (on: On, options?: PluginOptions): void => {
     const isChanges = !isDiff && tab === 'changelog'
     // Change Log and the diff view both draw Files | Diff Preview.
     const isFiles = isDiff || isChanges
-    const changeMode = state.changeView ?? 'list'
     const isWide = columns >= WIDE
     // Each section is framed in the theme's border color, or the `/color` accent.
     const border = { borderStyle: 'round', borderColor: accentBorder ? t.accent : t.border } as const
-    // Three header lines (title row, its right end kept for the Settings ⚙;
-    // panel tabs; actions; no interactive line yet: nothing asks) and one
+    // One header line (the title, the panel tabs and the actions, its right
+    // end kept for the Settings ⚙; no interactive line: nothing asks) and one
     // footer row; the sections share the rest.
-    const headerRows = 3
+    const headerRows = 1
     const area = Math.max(4, bodyRows - headerRows - 1)
     // The three sizes the splitters will drive, each computed here from its
     // default fraction. Fixed cell widths (not percentages) so labels,
@@ -1363,17 +1290,11 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     // The section's name sits on its top border. A bordered Box clips its
     // children, so the title is an absolute Box after it, at top={0}, in an
-    // unbordered wrapper of the same size. The Button carries its own label
-    // (default foreground) on an accent-tinted fill: a Text over a Button would
-    // block the press, a blank Button under a Text would paint over it.
+    // unbordered wrapper of the same size: a label (default foreground) on an
+    // accent-tinted fill, pressing it does nothing.
     const titled = (key: string, name: string) => (
       <Box key={key + ':chrome'} position="absolute" top={0} left={1} backgroundColor={onDefaultFg(t.accent)}>
-        <Button
-          key={key}
-          plain
-          label={' ' + name + ' '}
-          onPress={press => copyName($, name, press.surface)}
-        />
+        <Text key={key}>{' ' + name + ' '}</Text>
       </Box>
     )
 
@@ -1891,24 +1812,8 @@ export const register = (on: On, options?: PluginOptions): void => {
             </Box>
             {dragBar(p.barKey, p.rows.length, changeRoom, fwin.offset)}
           </Box>
-            {/* The name chip (name + 2 cells from column 1), a border cell, then
-                `view: list` (10 cells, right 1). */}
-            {titled('title:files', fit(p.title, Math.max(5, filesCols - 15)))}
-            <Box position="absolute" top={0} right={1} flexDirection="row" gap={1}>
-              <Button
-                key="view"
-                plain
-                label={`view: ${changeMode}`}
-                onPress={asleep(() =>
-                  update($, git, s => ({
-                    ...s,
-                    changeView: changeMode === 'list' ? ('tree' as const) : ('list' as const),
-                    changeOffset: 0,
-                    diffFileOffset: 0,
-                  })),
-                )}
-              />
-            </Box>
+            {/* The name chip: name + 2 cells from column 1, short of the far corner. */}
+            {titled('title:files', fit(p.title, Math.max(5, filesCols - 5)))}
           </Box>
           <Box flexDirection="column" width={previewCols} flexShrink={0} height={area}>
           <Box {...border} flexDirection="row" height="100%">
@@ -1938,52 +1843,54 @@ export const register = (on: On, options?: PluginOptions): void => {
       )
     }
 
-    const TAB_LABEL = { overview: 'Overview', graph: 'Graph', changelog: 'Change Log' + (changes.length > 0 ? ' ' + changes.length : '') } as const
+    const TAB_LABEL = { overview: 'Overview', graph: 'Graph', changelog: 'Change Log' } as const
 
     return own(
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
-        <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
-          <Text bold color={t.text}>{' Git'}</Text>
-          {settingsButton}
-        </Box>
-        <Box key="header:tabs" flexDirection="row" gap={1}>
-          {Tabs(elements, t, {
-            style: 'pill',
-            surface,
-            tabs: (['overview', 'graph', 'changelog'] as const).map(id => ({ id, label: TAB_LABEL[id] })),
-            selected: tab,
-            onSelect: asleep((id: string) => showTab(id as Tab)),
-          })}
-        </Box>
-        <Box key="header:actions" flexDirection="row" gap={1}>
-          {isDiff && Btn(elements, t, { key: 'back', label: 'back', variant: 'secondary', size: 'sm', surface, onPress: asleep(closeDiff) })}
-          {Btn(elements, t, {
-            key: 'refresh',
-            label: 'refresh',
-            variant: 'ghost',
-            size: 'sm',
-            surface,
-            onPress: asleep(() => {
-              clear()
-              $.ui.invalidate('ui.render')
-            }),
-          })}
-          {Btn(elements, t, {
-            key: 'fetch',
-            label: busy === 'fetch' ? 'fetching…' : 'fetch',
-            variant: 'outline',
-            size: 'sm',
-            surface,
-            onPress: asleep(() => remote($, 'fetch')),
-          })}
-          {Btn(elements, t, {
-            key: 'pull',
-            label: busy === 'pull' ? 'pulling…' : 'pull',
-            variant: 'primary',
-            size: 'sm',
-            surface,
-            onPress: asleep(() => remote($, 'pull')),
-          })}
+        {/* The title, the panel tabs and the actions, 2 cells apart, cut at the
+            right end on a narrow pane (kept for the Settings ⚙). */}
+        <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
+          <Box key="header:tabs" flexDirection="row" gap={2} flexShrink={1} overflow="hidden">
+            <Box flexShrink={0}>
+              <Text bold color={t.text}>{' Git'}</Text>
+            </Box>
+            <Box flexShrink={0}>
+              {Tabs(elements, t, {
+                style: 'pill',
+                gap: 2,
+                surface,
+                tabs: (['overview', 'graph', 'changelog'] as const).map(id => ({ id, label: TAB_LABEL[id] })),
+                selected: tab,
+                onSelect: asleep((id: string) => showTab(id as Tab)),
+              })}
+            </Box>
+            {isDiff && (
+              <Box flexShrink={0}>
+                {Btn(elements, t, { key: 'back', label: 'back', variant: 'secondary', size: 'sm', surface, onPress: asleep(closeDiff) })}
+              </Box>
+            )}
+            <Box flexShrink={0}>
+              {Btn(elements, t, {
+                key: 'fetch',
+                label: busy === 'fetch' ? 'fetching…' : 'fetch',
+                variant: 'outline',
+                size: 'sm',
+                surface,
+                onPress: asleep(() => remote($, 'fetch')),
+              })}
+            </Box>
+            <Box flexShrink={0}>
+              {Btn(elements, t, {
+                key: 'pull',
+                label: busy === 'pull' ? 'pulling…' : 'pull',
+                variant: 'primary',
+                size: 'sm',
+                surface,
+                onPress: asleep(() => remote($, 'pull')),
+              })}
+            </Box>
+          </Box>
+          {settingsButton !== undefined && <Box flexShrink={0}>{settingsButton}</Box>}
         </Box>
         {isDiff ? (
           filesAndPreview({

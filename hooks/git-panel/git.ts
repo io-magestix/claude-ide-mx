@@ -610,12 +610,14 @@ export const remoteSummary = (
 // --abbrev-ref HEAD` fails); fails when detached and outside a repo.
 export const headNameArgv = (): string[] => ['git', 'symbolic-ref', '--short', '-q', 'HEAD']
 
-export const statusArgv = (): string[] => [
+// `normal`: a dir untracked as a whole is one `?? dir/` entry (the
+// Explorer's marks); `all`: every file in it (Change Log, the counts).
+export const statusArgv = (untracked: 'all' | 'normal' = 'all'): string[] => [
   'git',
   'status',
   '--porcelain=v1',
   '-z',
-  '--untracked-files=all',
+  '--untracked-files=' + untracked,
 ]
 
 export type Change = {

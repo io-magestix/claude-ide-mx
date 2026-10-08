@@ -280,6 +280,7 @@ export type TabsProps = {
   style?: 'underline' | 'pill'
   surface?: RenderSurface
   keyPrefix?: string // Button keys are `<prefix>:<id>`, default `tab`; unique per drawing
+  gap?: number // cells between tabs; pill tabs set apart each keep their own fill
 }
 
 /** Tab strip; each tab's Button key is `<keyPrefix ?? 'tab'>:<id>`. */
@@ -288,7 +289,7 @@ export function Tabs(el: ElementTable, t: Theme, p: TabsProps) {
   const pre = p.keyPrefix ?? 'tab'
   if (!isTerminal(p.surface)) {
     return (
-      <Box flexDirection="row" gap={1}>
+      <Box flexDirection="row" gap={p.gap ?? 1}>
         {p.tabs.map(tab => (
           <Button key={pre + ':' + tab.id} label={tab.label} variant={tab.id === p.selected ? 'primary' : 'secondary'} onPress={() => p.onSelect(tab.id)} />
         ))}
@@ -296,13 +297,14 @@ export function Tabs(el: ElementTable, t: Theme, p: TabsProps) {
     )
   }
   if (p.style === 'pill') {
+    const isApart = (p.gap ?? 0) > 0
     return (
-      <Box flexDirection="row" backgroundColor={onDefaultFg(t.surface)} alignSelf="flex-start">
+      <Box flexDirection="row" backgroundColor={isApart ? undefined : onDefaultFg(t.surface)} alignSelf="flex-start" gap={p.gap ?? 0}>
         {p.tabs.map(tab => {
           const on = tab.id === p.selected
 
           return (
-            <Box key={pre + ':' + tab.id + ':chrome'} backgroundColor={on ? onDefaultFg(t.accent) : undefined} paddingX={1} hover={on ? undefined : { backgroundColor: onDefaultFg(t.surfaceHover) }}>
+            <Box key={pre + ':' + tab.id + ':chrome'} backgroundColor={on ? onDefaultFg(t.accent) : isApart ? onDefaultFg(t.surface) : undefined} paddingX={1} hover={on ? undefined : { backgroundColor: onDefaultFg(t.surfaceHover) }}>
               <Button key={pre + ':' + tab.id} plain label={tab.label} onPress={() => p.onSelect(tab.id)} />
             </Box>
           )

@@ -2,12 +2,14 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   afterDelete,
+  changeMarks,
   clip,
   deleteTarget,
   filterFor,
   flatten,
   isBinary,
   languageOf,
+  markOf,
   newFilePath,
   relativePath,
   rowHit,
@@ -274,4 +276,35 @@ test('rowHit splits a row into mark, rails, arrow and name', () => {
   expect(rowHit(0, 'file', 0)).toBe('mark')
   expect(rowHit(0, 'file', 1)).toBe('name')
   expect(rowHit(1, 'file', 3)).toBe('name')
+})
+
+test('changeMarks: + for added, * for edited and every dir above a change', () => {
+  const marks = changeMarks(
+    [
+      { path: 'src/new.ts', kind: 'added' },
+      { path: 'src/ui/old.ts', kind: 'modified' },
+      { path: 'gone.ts', kind: 'deleted' },
+      { path: 'docs/drafts/', kind: 'added' },
+    ],
+    '/repo',
+  )
+  expect(markOf('/repo/src/new.ts', marks)).toBe('+')
+  expect(markOf('/repo/src/ui/old.ts', marks)).toBe('*')
+  expect(markOf('/repo/src/ui', marks)).toBe('*')
+  expect(markOf('/repo/src', marks)).toBe('*')
+  // a deleted file has no row; its dir still changed
+  expect(markOf('/repo/gone.ts', marks)).toBeUndefined()
+  // a dir untracked as a whole is new, with everything under it
+  expect(markOf('/repo/docs/drafts', marks)).toBe('+')
+  expect(markOf('/repo/docs/drafts/a/b.md', marks)).toBe('+')
+  expect(markOf('/repo/docs', marks)).toBe('*')
+  expect(markOf('/repo/README.md', marks)).toBeUndefined()
+  // the toplevel is no row: never marked
+  expect(markOf('/repo', marks)).toBeUndefined()
+})
+
+test('changeMarks: a toplevel of / ends its walk', () => {
+  const marks = changeMarks([{ path: 'etc/hosts', kind: 'modified' }], '/')
+  expect(markOf('/etc/hosts', marks)).toBe('*')
+  expect(markOf('/etc', marks)).toBe('*')
 })

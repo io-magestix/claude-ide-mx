@@ -73,11 +73,8 @@ test('settingsOf keeps a boolean autoOpen only', () => {
   expect(DEFAULTS.autoOpen).toBe(true)
 })
 
-test('settingsOf keeps a known layout only', () => {
-  expect(settingsOf({ layout: 'split' })).toEqual({ layout: 'split' })
-  expect(settingsOf({ layout: 'tabs' })).toEqual({ layout: 'tabs' })
-  expect(settingsOf({ layout: 'grid' })).toEqual({})
-  expect(DEFAULTS.layout).toBe('split')
+test('settingsOf drops the retired layout and changeView fields', () => {
+  expect(settingsOf({ layout: 'tabs', changeView: 'list' })).toEqual({})
 })
 
 test('keysError: none for empty or good text, the first problem otherwise', () => {
@@ -90,8 +87,8 @@ test('keysError: none for empty or good text, the first problem otherwise', () =
 test('withGitDefaults: the Settings fill only what the git state lacks', () => {
   const base = { ref: 'all', offset: 0, branchOffset: 0, detailOffset: 0 }
   expect(withGitDefaults(base, undefined).limit).toBe(DEFAULTS.gitLimit)
-  const filled = withGitDefaults(base, { gitTab: 'graph', changeView: 'tree', gitLimit: 50 })
-  expect(filled).toMatchObject({ tab: 'graph', changeView: 'tree', limit: 50 })
-  const chosen = withGitDefaults({ ...base, tab: 'overview', changeView: 'list', limit: 400 }, { gitTab: 'graph', changeView: 'tree', gitLimit: 50 })
-  expect(chosen).toMatchObject({ tab: 'overview', changeView: 'list', limit: 400 })
+  const filled = withGitDefaults(base, { gitTab: 'graph', gitLimit: 50 })
+  expect(filled).toMatchObject({ tab: 'graph', limit: 50 })
+  const chosen = withGitDefaults({ ...base, tab: 'overview', limit: 400 }, { gitTab: 'graph', gitLimit: 50 })
+  expect(chosen).toMatchObject({ tab: 'overview', limit: 400 })
 })
