@@ -62,6 +62,7 @@ import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { GIT_PREFIX, MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
 import { DEFAULTS, SETTINGS_KEY, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
+import { THEME_POLL_MS, parseTabbyScheme, resetThemeEnv, supportedTerminal, tabbyConfigPaths, themeEnv, themeNote } from '../shared/term-theme'
 import type { Theme } from '../shared/theme'
 import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
 import {
@@ -271,14 +272,79 @@ const widestCached = (key: string, lines: readonly string[]): number => {
 const isMode = (value: unknown): value is Mode =>
   MODES.includes(value as Mode)
 
+// What an outside theme (Settings `theme` `terminal` or `claude-code`) draws
+// from: Tabby's config.yaml, looked at again at most every THEME_POLL_MS and
+// read again when it changed, and Claude Code's `/config` theme (read once,
+// then kept current by the `config.set` hook; `force` reads it again). For
+// `claude`, only which terminal it is (Settings names it). The cache is
+// shared with Git (term-theme.ts `themeEnv`).
+const explorerThemeEnv = async ($: EngineInterface, source: string, force = false): Promise<void> => {
+  const env = themeEnv
+  try {
+    // Which terminal, looked up whatever the theme (Settings names it).
+    if (env.configPaths === undefined) {
+      env.configPaths = tabbyConfigPaths(
+        await $.env.get('TERM_PROGRAM'),
+        await $.env.get('TABBY_CONFIG_DIRECTORY'),
+        await $.env.get('HOME'),
+      )
+    }
+    if (source === 'claude') return
+    if (env.configPaths.length > 0 && (force || Date.now() - env.checkedAt >= THEME_POLL_MS)) {
+      env.checkedAt = Date.now()
+      for (const path of env.configPaths) {
+        const stat = await statOf($, path)
+        if (stat === undefined) continue
+        if (stat.mtimeMs !== env.mtime) {
+          env.scheme = parseTabbyScheme(await $.fs.read(path))
+          env.mtime = stat.mtimeMs
+        }
+        break
+      }
+    }
+    if (source === 'claude-code' && (force || env.ccTheme === undefined)) {
+      const row = (await $.config.list()).find(r => r.key === 'theme')
+      env.ccTheme = typeof row?.value === 'string' ? row.value : 'dark'
+    }
+  } catch {
+    // not readable now: the theme draws from what is known (else as `claude`)
+  }
+}
+
+// While an outside theme is in use and a panel is up, its sources are looked
+// at every THEME_POLL_MS: a Tabby scheme or a `/theme` changed redraws both.
+let themeWatch: { cancel: () => void } | undefined
+const watchTheme = ($: EngineInterface): void => {
+  if (themeWatch !== undefined) return
+  try {
+    themeWatch = $.clock.after(THEME_POLL_MS, async () => {
+      themeWatch = undefined
+      try {
+        const source = (await read($, settings)).theme ?? DEFAULTS.theme
+        if (source === 'claude') return
+        if (!(await $.ui.panes()).some(pane => pane.id === PANE || pane.id === SPLIT_PANE)) return
+        const before = [themeEnv.mtime, themeEnv.ccTheme].join('\0')
+        await explorerThemeEnv($, source, true)
+        if ([themeEnv.mtime, themeEnv.ccTheme].join('\0') !== before) $.ui.invalidate('ui.render')
+        watchTheme($)
+      } catch {
+        // no surface to ask: the next drawing watches again
+      }
+    })
+  } catch {
+    // no clock here
+  }
+}
+
 // The Settings theme, its accent taken from the `/color` session color while
 // one is set (and `accentFromSession` is on, the default); that accent frames
 // the sections too (`accentBorder`), as git's.
 const themeNow = async ($: EngineInterface): Promise<{ t: Theme; accentBorder: boolean }> => {
   const now = await read($, settings)
   const color = await read($, sessionColor)
+  await explorerThemeEnv($, now.theme ?? DEFAULTS.theme)
 
-  return { t: resolveTheme(now, color), accentBorder: color !== '' && (now.accentFromSession ?? true) }
+  return { t: resolveTheme(now, color, themeEnv), accentBorder: color !== '' && (now.accentFromSession ?? true) }
 }
 
 // The session's `/color` as the transcript last recorded it (`agent-color`
@@ -1480,9 +1546,9 @@ const toggleSettings = async ($: EngineInterface): Promise<void> => {
   if (ui.open === host) return settingsDone($)
   const now = await read($, settings)
   await update($, settingsUi, (u): SettingsUi => (u.open === undefined ? { open: host, before: now } : { ...u, open: host }))
-  // The sheet takes the keyboard, its ring on the theme in use (Enter there
-  // changes nothing; Tab walks on to the keys field): see focusOn.
-  focusOn($, 'settings:theme:' + (now.theme ?? DEFAULTS.theme))
+  // The sheet takes the keyboard, its ring on the editor keymap in effect
+  // (Enter there changes nothing; Tab walks on to the keys field): see focusOn.
+  focusOn($, 'settings:keymap:' + (now.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains')))
 }
 
 // A change applies at once (both panels redraw); `done` saves it. A new page
@@ -2184,6 +2250,8 @@ const seedSession = async ($: EngineInterface, carried?: Stash): Promise<void> =
 
 export const register = (on: On, options?: PluginOptions): void => {
   pluginOptions = options
+  // The outside themes' sources are read again after a reload.
+  resetThemeEnv()
   const merged = mergeKeys(options, undefined)
   keymap = merged.keymap
   keymapErrors = merged.errors
@@ -2240,6 +2308,17 @@ export const register = (on: On, options?: PluginOptions): void => {
     await closeOnExit($, e.reason)
 
     return next(e)
+  })
+
+  // Claude Code's `/config` theme changed: the `claude-code` theme follows it.
+  on('config.set', { key: 'theme' }, async ($, e, next) => {
+    const done = await next(e)
+    if ('value' in done && typeof done.value === 'string' && done.value !== themeEnv.ccTheme) {
+      themeEnv.ccTheme = done.value
+      $.ui.invalidate('ui.render')
+    }
+
+    return done
   })
 
   // Follow `/color` so the section frames match the prompt bar.
@@ -2561,6 +2640,8 @@ export const register = (on: On, options?: PluginOptions): void => {
     const below = isSplit ? await next(e) : undefined
     // The Settings theme (its accent from `/color` while one is set).
     const { t, accentBorder } = await themeNow($)
+    // An outside theme follows its sources while the panel is up.
+    if (((await read($, settings)).theme ?? DEFAULTS.theme) !== 'claude') watchTheme($)
     // The Settings values and sheet; the editor keymap follows the values
     // whichever panel's sheet changed them.
     const settingsNow = await read($, settings)
@@ -3056,6 +3137,8 @@ export const register = (on: On, options?: PluginOptions): void => {
             keymap: settingsNow.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains'),
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
+            themeNote: themeNote(settingsNow.theme, themeEnv),
+            terminalName: supportedTerminal(themeEnv),
             onChange: patch => void changeSettings($, patch),
             onKeys: text => void settingsKeys($, text),
             onResetLayout: () => void resetLayout($),
@@ -3065,7 +3148,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         : undefined
 
     const own = (
-      <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.bg}>
+      <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
           <Text bold color={t.text}>
             {' Explorer'}
@@ -3470,7 +3553,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     const cols = e.props.bodyColumns
 
     return (
-      <Box flexDirection="column" width="100%" height={fullRows} backgroundColor={t.bg}>
+      <Box flexDirection="column" width="100%" height={fullRows} backgroundColor={t.canvas}>
         <Box key="split:explorer" flexDirection="column" height={halves.top} flexShrink={0}>
           {own}
         </Box>

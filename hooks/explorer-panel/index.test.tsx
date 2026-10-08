@@ -59,6 +59,9 @@ const GREP: Record<string, string> = {}
 
 // The repo toplevel per root, for `copy path`; a root not here is no repo.
 const TOPLEVELS: Record<string, string> = { '/proj': '/proj', '/mono/app': '/mono' }
+// Environment variables the fake answers (any other: '/home/u', as HOME).
+const ENV: Record<string, string | undefined> = {}
+
 // Roots outside any repo (every git call there fails), and repos before their
 // first commit (no HEAD to name; `symbolic-ref` answers `trunk`).
 const NOT_REPOS = new Set<string>()
@@ -252,7 +255,7 @@ const fake = (
       },
     }
   })
-  on('env.get', () => ({ value: '/home/u' }))
+  on('env.get', (_$, e) => ({ value: e.name in ENV ? ENV[e.name] : '/home/u' }))
   let cwd = CWD
   on('session.cwd', () => ({ value: cwd }))
   on('session.root', () => ({ value: root() }))
@@ -2008,8 +2011,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
   const frames = async (ui: Pane) =>
     (await ui.findAll({ type: 'Box' })).filter(box => box.props.borderStyle === 'round')
 
-  test(`${surface}: the Settings theme paints the page, frames, selection and editor`, async ($, on) => {
-    memoryStore(on, new Map<string, unknown>([['settings', { theme: 'nord' }]]))
+  test(`${surface}: the theme paints the page, frames, selection and editor`, async ($, on) => {
+    memoryStore(on, new Map<string, unknown>())
     fake(on)
     await $.session.start(start(surface))
     const ui = await $.ui.mount({
@@ -2020,7 +2023,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       requestId: 'ide-explorer',
       viewport: VIEWPORT,
     })
-    const t = THEMES.nord
+    const t = THEMES.claude
 
     expect((await ui.findAll({ type: 'Box' })).some(box => box.props.backgroundColor === t.bg)).toBe(true)
     const framed = await frames(ui)
@@ -2116,13 +2119,18 @@ for (const surface of ['terminal', 'desktop'] as const) {
   const mountPane = ($: Engine, requestId: 'ide-explorer' | 'ide-git') =>
     $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId, viewport: VIEWPORT })
 
-  test(`${surface}: the ⚙ opens Settings; a theme applies to both panels at once, cancel puts it back`, async ($, on) => {
+  test(`${surface}: the ⚙ opens Settings; a change applies at once, cancel puts it back, done saves`, async ($, on) => {
     const store = settingsStore(on)
     fake(on)
+    on('command.run', { command: 'color' }, () => ({ text: 'Session color set to: green' }))
     await $.session.start(start(surface))
+    await $.command.run({ command: 'color', args: 'green', origin: { kind: 'composer' }, presentation: PRESENTATION })
     const ui = await mountPane($, 'ide-explorer')
     const git = await mountPane($, 'ide-git')
-    const paints = async (pane: Pane, bg: string) => (await pane.findAll({ type: 'Box' })).some(box => box.props.backgroundColor === bg)
+    // the /color accent tints the frames while Accent from /color is on
+    const green = sessionHex('green')
+    const tinted = async () => (await ui.findAll({ type: 'Box' })).some(box => box.props.borderColor === green)
+    expect(await tinted()).toBe(true)
 
     expect(await ui.find({ key: 'settings' })).toBeDefined()
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
@@ -2135,26 +2143,23 @@ for (const surface of ['terminal', 'desktop'] as const) {
       if ((b.key ?? '').startsWith('settings:')) expect(String(b.props.label).trim().length > 0).toBe(true)
     }
 
-    await ui.press({ key: 'settings:theme:nord' })
-    expect(await paints(ui, THEMES.nord.bg)).toBe(true)
-    expect(await paints(git, THEMES.nord.bg)).toBe(true)
+    await ui.press({ key: 'settings:accent' })
+    expect(await tinted()).toBe(false)
     // live, not saved yet
     expect(store.get('settings')).toBeUndefined()
 
     await ui.press({ key: 'settings:cancel' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
-    expect(await paints(ui, THEMES.claude.bg)).toBe(true)
-    expect(await paints(git, THEMES.claude.bg)).toBe(true)
+    expect(await tinted()).toBe(true)
     expect(store.get('settings')).toBeUndefined()
 
     // done saves; the next session starts with it
     await ui.press({ key: 'settings' })
-    await ui.press({ key: 'settings:theme:dracula' })
     await ui.press({ key: 'settings:accent' })
     await ui.press({ key: 'settings:done' })
-    expect(store.get('settings')).toEqual({ theme: 'dracula', accentFromSession: false })
+    expect(store.get('settings')).toEqual({ accentFromSession: false })
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
-    expect(await paints(git, THEMES.dracula.bg)).toBe(true)
+    expect(await tinted()).toBe(false)
   })
 
   test(`${surface}: while the sheet is up the panel's Buttons sleep: a press does nothing`, async ($, on) => {
@@ -2291,8 +2296,7 @@ const sessionState = (on: On, held: Record<string, unknown> = {}) => {
 for (const surface of ['terminal', 'desktop'] as const) {
   const mountPane = ($: Engine, requestId: 'ide-explorer' | 'ide-git') =>
     $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId, viewport: VIEWPORT })
-  const paints = async (pane: Pane, bg: string) => (await pane.findAll({ type: 'Box' })).some(box => box.props.backgroundColor === bg)
-  const PRESETS = { settings: { theme: 'nord', explorerMode: 'unity' }, 'layout:explorer': { tree: 0.5 } }
+  const PRESETS = { settings: { accentFromSession: false, explorerMode: 'unity' }, 'layout:explorer': { tree: 0.5 } }
 
   test(`${surface}: a /clear with nothing carried takes the presets from the store`, async ($, on) => {
     const state = sessionState(on)
@@ -2303,8 +2307,6 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(state.value('settings')).toEqual(PRESETS.settings)
     expect(state.value('explorer')?.mode).toBe('unity')
     expect(state.value('explorer')?.split).toEqual({ tree: 0.5 })
-    const ui = await mountPane($, 'ide-explorer')
-    expect(await paints(ui, THEMES.nord.bg)).toBe(true)
   })
 
   test(`${surface}: a compact seeds nothing`, async ($, on) => {
@@ -2329,9 +2331,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await ui.press({ key: 'row:/proj/src' })
       await ui.press({ key: 'row:/proj/src/main.ts' })
       await ui.press({ key: 'edit' })
-      // a theme picked, not saved: kept too
+      // a setting changed, not saved: kept too
       await ui.press({ key: 'settings' })
-      await ui.press({ key: 'settings:theme:nord' })
+      await ui.press({ key: 'settings:accent' })
       const before = state.value('explorer')!
       expect(before.expanded).toEqual(['/proj/src'])
       expect(before.edit?.path).toBe('/proj/src/main.ts')
@@ -2348,8 +2350,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(after.edit?.path).toBe('/proj/src/main.ts')
       expect(after.edit?.version).toBe(before.edit.version + 1)
       expect(state.value('git')?.tab).toBe('graph')
-      expect(state.value('settings')?.theme).toBe('nord')
-      expect(await paints(ui, THEMES.nord.bg)).toBe(true)
+      expect(state.value('settings')?.accentFromSession).toBe(false)
       expect(await ui.find({ key: 'editor' })).toBeDefined()
       // the sheet is session only
       expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
@@ -3724,5 +3725,99 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'settings:autoOpen' })
     await ui.press({ key: 'settings:done' })
     expect((store.get('settings') as { autoOpen?: boolean }).autoOpen).toBe(false)
+  })
+}
+
+// ------------------------------------------------------------ Outside themes
+
+const TABBY_YAML = (name: string, bg: string, fg = '#efefef') =>
+  [
+    'terminal:',
+    '  colorScheme:',
+    `    name: ${name}`,
+    `    foreground: '${fg}'`,
+    `    background: '${bg}'`,
+    "    cursor: '#bbbbbb'",
+    '    colors:',
+    ...['#242424', '#d71c15', '#5aa513', '#fdb40c', '#063b8c', '#e40038', '#2595e1', '#efefef',
+      '#4b4b4b', '#fc1c18', '#6bc219', '#fec80e', '#0955ff', '#fb0050', '#3ea8fc', '#8c00ec'].map(c => `      - '${c}'`),
+  ].join('\n')
+// The terminal's variables as the fake answers them (`vars`; the rest unset).
+const envOf = (vars: Record<string, string>) => {
+  for (const name of ['TERM_PROGRAM', 'TABBY_CONFIG_DIRECTORY']) ENV[name] = vars[name]
+}
+const pageBg = async (ui: Pane) => (await ui.findAll({ type: 'Box' })).find(box => box.props.minHeight === PROPS.scroll.bodyRows)?.props.backgroundColor
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  const mountWith = async ($: Engine, on: On, settingsValue: Record<string, unknown>) => {
+    const clock = mock.clock(on)
+    settingsStore(on, [['settings', settingsValue]])
+    fake(on)
+    on('ui.panes', () => ({ value: [{ id: 'ide-explorer', isFocused: true }] as never }))
+    on('ui.focus', () => ({}))
+    await $.session.start(start(surface))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })
+
+    return { ui, clock }
+  }
+
+  test(`${surface}: Match Terminal in Tabby draws Tabby's scheme and follows a change of it`, async ($, on) => {
+    envOf({ TERM_PROGRAM: 'Tabby', TABBY_CONFIG_DIRECTORY: '/tabby-cfg' })
+    FILES['/tabby-cfg/config.yaml'] = TABBY_YAML('Elementary', '#181818')
+    MTIMES['/tabby-cfg/config.yaml'] = 1
+    const { ui, clock } = await mountWith($, on, { theme: 'terminal' })
+    expect(await pageBg(ui)).toBe('#181818')
+
+    // Tabby saves another scheme: the panel follows without a press
+    FILES['/tabby-cfg/config.yaml'] = TABBY_YAML('Paper', '#fafafa', '#202020')
+    MTIMES['/tabby-cfg/config.yaml'] = 2
+    await clock.advance(2000)
+    expect(await pageBg(ui)).toBe('#fafafa')
+    // the choice names the terminal
+    await ui.press({ key: 'settings' })
+    expect((await ui.find({ key: 'settings:theme:terminal' }))?.props.label).toContain('Match Terminal (Tabby)')
+    expect(await ui.find({ type: 'Text', text: 'Tabby: Paper' })).toBeDefined()
+  })
+
+  test(`${surface}: outside Tabby Match Terminal is greyed out, Not supported; a saved one draws as the default`, async ($, on) => {
+    envOf({ TERM_PROGRAM: 'iTerm.app' })
+    const { ui } = await mountWith($, on, { theme: 'terminal' })
+    expect(await pageBg(ui)).toBe(THEMES.claude.bg)
+    await ui.press({ key: 'settings' })
+    expect(await ui.find({ type: 'Text', text: 'this terminal is not supported: drawn as default' })).toBeDefined()
+    // muted text, no Button: nothing to press
+    expect(await ui.find({ key: 'settings:theme:terminal' })).toBeUndefined()
+    expect(await ui.find({ key: 'settings:theme:terminal:off' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '◉ Match Terminal (Not supported)' })).toBeDefined()
+  })
+
+  test(`${surface}: the claude code theme follows /config, its background left to the terminal`, async ($, on) => {
+    envOf({})
+    on('config.list', () => ({ value: [{ key: 'theme', value: 'light' }] as never }))
+    on('config.set', (_$, e) => ({ value: e.value }))
+    const { ui } = await mountWith($, on, { theme: 'claude-code' })
+    expect(await pageBg(ui)).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: ' Explorer' })).toBeDefined()
+    expect((await ui.find({ type: 'Text', text: ' Explorer' }))?.props.color).toBe('#000000')
+
+    // /theme picks dark: the panel follows
+    await $.config.set({ key: 'theme', value: 'dark' } as never)
+    expect((await ui.find({ type: 'Text', text: ' Explorer' }))?.props.color).toBe('#ffffff')
+  })
+
+  test(`${surface}: the Theme choice is in Settings; done saves it`, async ($, on) => {
+    envOf({})
+    const store = settingsStore(on)
+    fake(on)
+    on('ui.focus', () => ({}))
+    await $.session.start(start(surface))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })
+    await ui.press({ key: 'settings' })
+    expect((await ui.find({ key: 'settings:theme:claude' }))?.props.label).toContain('Default')
+    expect((await ui.find({ key: 'settings:theme:claude-code' }))?.props.label).toContain('Match Claude Code')
+    expect(await ui.find({ type: 'Text', text: '○ Match Terminal (Not supported)' })).toBeDefined()
+    await ui.press({ key: 'settings:theme:claude-code' })
+    await ui.press({ key: 'settings:done' })
+    expect((store.get('settings') as { theme?: string }).theme).toBe('claude-code')
   })
 }

@@ -1,10 +1,12 @@
 // Pure helpers for the Settings values (`$.state` `settings`, `$.store`
 // `settings`): defaults, the store reader, the resolved theme and keymap.
-import type { GitState, SettingsState, ThemeName } from '../../types'
+import type { GitState, SettingsState } from '../../types'
 import { KEYMAPS, mergeKeymap } from '../explorer-panel/editor'
 import type { Keymap } from '../explorer-panel/editor'
 import { sessionHex } from './color'
-import { THEME_NAMES, themeOf } from './theme'
+import { THEMES } from './theme'
+import { themeFromClaudeCode, themeFromScheme } from './term-theme'
+import type { TermScheme } from './term-theme'
 import type { Theme } from './theme'
 import { contrast } from './ui'
 
@@ -14,7 +16,7 @@ export const SETTINGS_KEY = 'settings'
 // Every field's value while it is absent; `keymap` is absent here as its
 // default is userConfig `editorKeymap` (see mergeKeys).
 export const DEFAULTS = {
-  theme: 'claude' as ThemeName,
+  theme: 'claude' as 'claude' | 'terminal' | 'claude-code',
   accentFromSession: true,
   explorerMode: 'files' as 'files' | 'unity',
   gitTab: 'overview' as 'overview' | 'graph' | 'changelog',
@@ -33,7 +35,7 @@ export const settingsOf = (raw: unknown): SettingsState | undefined => {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
   const r = raw as Record<string, unknown>
   const out: SettingsState = {}
-  const theme = oneOf(r.theme, THEME_NAMES)
+  const theme = oneOf(r.theme, ['claude', 'terminal', 'claude-code'] as const)
   if (theme !== undefined) out.theme = theme
   if (typeof r.accentFromSession === 'boolean') out.accentFromSession = r.accentFromSession
   const keymap = oneOf(r.keymap, ['jetbrains', 'vscode'] as const)
@@ -64,11 +66,23 @@ const lighten = (hex: string, amount: number): string => {
   return '#' + c((n >> 16) & 255) + c((n >> 8) & 255) + c(n & 255)
 }
 
-// The theme the panels draw with: the chosen theme, its accent (and the
-// focus ring, hover and text on it) taken from the `/color` session color
-// when `accentFromSession` is on (default) and a color is set ('' is none).
-export const resolveTheme = (settings: SettingsState | undefined, sessionColor: string): Theme => {
-  const theme = themeOf(settings?.theme ?? DEFAULTS.theme)
+// The theme the panels draw with: the Settings `theme` (`terminal` from the
+// terminal's scheme while one is known, `claude-code` from Claude Code's
+// theme, else `claude`), its accent (and the focus ring, hover and text on it)
+// taken from the `/color` session color when `accentFromSession` is on
+// (default) and a color is set ('' is none).
+export const resolveTheme = (
+  settings: SettingsState | undefined,
+  sessionColor: string,
+  env: { scheme?: TermScheme; ccTheme?: string } = {},
+): Theme => {
+  const source = settings?.theme ?? DEFAULTS.theme
+  const theme =
+    source === 'terminal' && env.scheme !== undefined
+      ? themeFromScheme(env.scheme)
+      : source === 'claude-code'
+        ? themeFromClaudeCode(env.ccTheme, env.scheme)
+        : THEMES.claude
   const follow = settings?.accentFromSession ?? DEFAULTS.accentFromSession
   if (!follow || sessionColor === '') return theme
   const accent = sessionHex(sessionColor)

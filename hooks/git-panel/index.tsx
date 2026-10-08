@@ -7,6 +7,7 @@ import { sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
 import { H_THUMB, H_TRACK, scrollbar } from '../shared/scrollbar'
 import { DEFAULTS, SETTINGS_KEY, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
+import { THEME_POLL_MS, parseTabbyScheme, supportedTerminal, tabbyConfigPaths, themeEnv, themeNote } from '../shared/term-theme'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { EXPLORER_PANE, GIT_PREFIX, SPLIT_PANE, SPLIT_TITLE, gitKeyOf, prefixKeys, seat, splitColumns } from '../shared/layout'
 import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
@@ -128,9 +129,9 @@ const toggleSettings = async ($: EngineInterface): Promise<void> => {
   if (ui.open === PANE) return settingsDone($)
   const now = await read($, settings)
   await update($, settingsUi, (u): SettingsUi => (u.open === undefined ? { open: PANE, before: now } : { ...u, open: PANE }))
-  // The sheet takes the keyboard, its ring on the theme in use (Enter there
-  // changes nothing; Tab walks on to the keys field).
-  sheetFocus($, 'settings:theme:' + (now.theme ?? DEFAULTS.theme))
+  // The sheet takes the keyboard, its ring on the editor keymap in effect
+  // (Enter there changes nothing; Tab walks on to the keys field).
+  sheetFocus($, 'settings:keymap:' + (now.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains')))
 }
 
 // As the explorer's focusOn: a press's own drawing is not there yet, so the
@@ -179,6 +180,41 @@ const resetLayout = async ($: EngineInterface): Promise<void> => {
 
 const gitSeesPane = async ($: EngineInterface, id: string): Promise<boolean> =>
   (await $.ui.panes()).some(pane => pane.id === id)
+
+// As the explorer's explorerThemeEnv (the validator follows `$` within one
+// file): what an outside theme draws from, into the shared `themeEnv`.
+const gitThemeEnv = async ($: EngineInterface, source: string): Promise<void> => {
+  const env = themeEnv
+  try {
+    // Which terminal, looked up whatever the theme (Settings names it).
+    if (env.configPaths === undefined) {
+      env.configPaths = tabbyConfigPaths(
+        await $.env.get('TERM_PROGRAM'),
+        await $.env.get('TABBY_CONFIG_DIRECTORY'),
+        await $.env.get('HOME'),
+      )
+    }
+    if (source === 'claude') return
+    if (env.configPaths.length > 0 && Date.now() - env.checkedAt >= THEME_POLL_MS) {
+      env.checkedAt = Date.now()
+      for (const path of env.configPaths) {
+        const stat = await $.fs.stat(path).catch(() => undefined)
+        if (stat === undefined) continue
+        if (stat.mtimeMs !== env.mtime) {
+          env.scheme = parseTabbyScheme(await $.fs.read(path))
+          env.mtime = stat.mtimeMs
+        }
+        break
+      }
+    }
+    if (source === 'claude-code' && env.ccTheme === undefined) {
+      const row = (await $.config.list()).find(r => r.key === 'theme')
+      env.ccTheme = typeof row?.value === 'string' ? row.value : 'dark'
+    }
+  } catch {
+    // not readable now: the theme draws from what is known (else as `claude`)
+  }
+}
 
 // Saved; the split layout, chosen on this sheet, is seated now: the Explorer closes
 // first (Git with it), unless its unsaved-changes bar holds it, which then
@@ -952,7 +988,8 @@ export const register = (on: On, options?: PluginOptions): void => {
         if (sheet.open !== host) void act(...args)
       }
     const color = await read($, sessionColor)
-    const t = resolveTheme(settingsNow, color)
+    await gitThemeEnv($, settingsNow.theme ?? DEFAULTS.theme)
+    const t = resolveTheme(settingsNow, color, themeEnv)
     // That `/color` accent frames the sections too, as it did before themes.
     const accentBorder = color !== '' && (settingsNow.accentFromSession ?? true)
     // Selected rows: a Button label is the terminal's default foreground, so fills are darkened.
@@ -975,6 +1012,8 @@ export const register = (on: On, options?: PluginOptions): void => {
             keymap: settingsNow.keymap ?? (pluginOptions?.editorKeymap === 'vscode' ? 'vscode' : 'jetbrains'),
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
+            themeNote: themeNote(settingsNow.theme, themeEnv),
+            terminalName: supportedTerminal(themeEnv),
             onChange: patch => void changeSettings($, patch),
             onKeys: text => void settingsKeys($, text),
             onResetLayout: () => void resetLayout($),
@@ -993,7 +1032,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       if (threw !== before) $.clock.after(1000, () => $.ui.invalidate('ui.render'))
 
       return own(
-        <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.bg}>
+        <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
           <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
             <Text bold color={t.text}>{" Git"}</Text>
             {settingsButton}
@@ -1902,7 +1941,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     const TAB_LABEL = { overview: 'Overview', graph: 'Graph', changelog: 'Change Log' + (changes.length > 0 ? ' ' + changes.length : '') } as const
 
     return own(
-      <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.bg}>
+      <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
           <Text bold color={t.text}>{' Git'}</Text>
           {settingsButton}

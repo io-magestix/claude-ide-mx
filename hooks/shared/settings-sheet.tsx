@@ -13,10 +13,9 @@
  */
 import type { ElementTable, RenderChildren, RenderSurface } from 'claude-code'
 
-import type { SettingsState, ThemeName } from '../../types'
+import type { SettingsState } from '../../types'
 import { centerOffset, darken } from './overlay'
 import { DEFAULTS, GIT_LIMITS } from './settings'
-import { THEME_NAMES } from './theme'
 import type { Theme } from './theme'
 import { Btn, Chip, Field, ModalBtn, RadioGroup, Switch } from './ui'
 
@@ -43,6 +42,8 @@ export type SheetProps = {
   keymap: 'jetbrains' | 'vscode' // the preset in effect (settings, else userConfig)
   keys: string // the overrides field's text
   keysError?: string
+  themeNote?: string // under the Theme choice: what an outside theme follows, or why it is not drawn
+  terminalName?: string // the supported terminal the session runs in; undefined greys out Match Terminal
   onChange: (patch: Partial<SettingsState>) => void
   onKeys: (text: string) => void
   onResetLayout: () => void
@@ -88,7 +89,6 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
   const radio = (key: string, value: string, options: readonly string[], onChange: (v: string) => void) =>
     RadioGroup(el, t, { key, row: true, value, surface, options: options.map(o => ({ value: o, label: o })), onChange })
 
-  const theme = s.theme ?? DEFAULTS.theme
   const limit = s.gitLimit ?? DEFAULTS.gitLimit
   // The overrides field: a native Input where the surface has one (not mobile).
   const Input = 'Input' in el ? el.Input : undefined
@@ -127,13 +127,29 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
             Settings
           </Text>
           {heading('settings:h:appearance', 'Appearance')}
-          {line(
-            'settings:l:theme',
-            'Theme',
-            THEME_NAMES.map(name =>
-              Chip(el, t, { key: 'settings:theme:' + name, label: name, selected: name === theme, surface, onPress: () => p.onChange({ theme: name as ThemeName }) }),
+          {line('settings:l:theme', 'Theme', [
+            RadioGroup(el, t, {
+              key: 'settings:theme',
+              row: true,
+              value: s.theme ?? DEFAULTS.theme,
+              surface,
+              options: [
+                { value: 'claude', label: 'Default' },
+                {
+                  value: 'terminal',
+                  label: `Match Terminal (${p.terminalName ?? 'Not supported'})`,
+                  disabled: p.terminalName === undefined,
+                },
+                { value: 'claude-code', label: 'Match Claude Code' },
+              ],
+              onChange: v => p.onChange({ theme: v as 'claude' | 'terminal' | 'claude-code' }),
+            }),
+            p.themeNote !== undefined && (
+              <Text key="settings:theme:note" color={t.muted}>
+                {p.themeNote}
+              </Text>
             ),
-          )}
+          ])}
           {line(
             'settings:l:accent',
             'Accent',

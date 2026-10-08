@@ -19,21 +19,20 @@ test('ansi256Hex covers system, cube and gray codes', () => {
 test('resolveTheme: default is claude with its own accent', () => {
   expect(resolveTheme(undefined, '')).toEqual(THEMES.claude)
   expect(resolveTheme({}, '')).toEqual(THEMES.claude)
-  expect(resolveTheme({ theme: 'nord' }, '')).toEqual(THEMES.nord)
 })
 
 test('resolveTheme: a session color overrides the accent unless turned off', () => {
-  const t = resolveTheme({ theme: 'nord' }, 'orange')
+  const t = resolveTheme({}, 'orange')
   expect(t.accent).toBe('#ff8700')
   expect(t.focus).toBe('#ff8700')
   expect(t.accentText).toBe('#000000')
-  expect(t.accentHover).not.toBe(THEMES.nord.accentHover)
-  expect(t.bg).toBe(THEMES.nord.bg)
-  expect(resolveTheme({ theme: 'nord', accentFromSession: false }, 'orange')).toEqual(THEMES.nord)
+  expect(t.accentHover).not.toBe(THEMES.claude.accentHover)
+  expect(t.bg).toBe(THEMES.claude.bg)
+  expect(resolveTheme({ accentFromSession: false }, 'orange')).toEqual(THEMES.claude)
 })
 
-test('resolveTheme: an unknown theme name falls back to claude', () => {
-  expect(resolveTheme({ theme: 'nope' as never }, '').name).toBe('claude')
+test('resolveTheme: a theme saved by an older version is ignored', () => {
+  expect(resolveTheme({ theme: 'nord' } as never, '')).toEqual(THEMES.claude)
 })
 
 test('mergeKeys: preset from settings over userConfig', () => {
@@ -62,11 +61,10 @@ test('mergeKeys: bad entries are named by source and skipped', () => {
 test('settingsOf keeps valid fields only', () => {
   expect(settingsOf(null)).toBeUndefined()
   expect(settingsOf([])).toBeUndefined()
+  // a theme from an older version is dropped with the rest
   expect(settingsOf({ theme: 'dracula', gitLimit: 50, gitTab: 'nope', accentFromSession: 'yes', extra: 1 })).toEqual({
-    theme: 'dracula',
     gitLimit: 50,
   })
-  expect(DEFAULTS.theme).toBe('claude')
 })
 
 test('settingsOf keeps a boolean autoOpen only', () => {

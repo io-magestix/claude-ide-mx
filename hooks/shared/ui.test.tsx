@@ -1,13 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 
 import { THEMES } from './theme'
-import { Alert as A_, Avatar as Av_, Badge as Ba_, Btn as B, Card as C_, Header as H_, Progress as P_, Tabs as T_, barString, contrast, contrastRatio, initials, onDefaultFg } from './ui'
+import { Alert as A_, Avatar as Av_, Badge as Ba_, Btn as B, Card as C_, Progress as P_, Tabs as T_, barString, contrast, contrastRatio, initials, onDefaultFg } from './ui'
 
 // The elements are plain constructors: calling one returns its frozen element.
 const mk = (type: string) => (props: Record<string, unknown>) => ({ type, props })
 const el: any = { Box: mk('Box'), Text: mk('Text'), Button: mk('Button') }
-const t = THEMES.nord
-const Alert: any = A_, Avatar: any = Av_, Badge: any = Ba_, Card: any = C_, Header: any = H_, Progress: any = P_, Tabs: any = T_
+const t = THEMES.claude
+const Alert: any = A_, Avatar: any = Av_, Badge: any = Ba_, Card: any = C_, Progress: any = P_, Tabs: any = T_
 const txt = (x: any): string => [x.props.children].flat(9).join('')
 // The library returns RenderElement; the mock elements are plain {type, props}.
 const Btn: (...a: Parameters<typeof B>) => any = B as any
@@ -108,14 +108,6 @@ test('Tabs: one Button per tab keyed tab:<id>, press selects', () => {
   expect(seen).toEqual(['b', 'b'])
 })
 
-test('Header: theme Button cycles to the next theme', () => {
-  let got = ''
-  const tree = Header(el, t, { title: 'T', themeName: 'nord', onTheme: (n: string) => (got = n) })
-  const b = find(tree, x => x.type === 'Button' && x.props.key === 'theme')
-  b.props.onPress()
-  expect(got).toBe('dracula')
-})
-
 import { Checkbox as Cb_, Field as Fi_, RadioGroup as Rg_, Switch as Sw_ } from './ui'
 
 test('Field frame: danger on error, accent when valid, error replaces helper', () => {
@@ -138,6 +130,11 @@ test('Checkbox, RadioGroup, Switch glyphs and keys', () => {
   expect(find(rg, x => x.type === 'Text' && txt(x) === '◉')).toBeDefined()
   expect(find(rg, x => x.type === 'Button' && x.props.label === ' B')).toBeDefined()
   expect(find(rg, x => x.type === 'Button' && x.props.key === 'r:a')).toBeDefined()
+  // a disabled option: muted text, no Button
+  const off = RadioGroup(el, t, { key: 'r', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B', disabled: true }], value: 'a', onChange: () => {} })
+  expect(find(off, x => x.type === 'Button' && x.props.key === 'r:b')).toBeUndefined()
+  expect(find(off, x => x.type === 'Text' && txt(x) === '○ B').props.color).toBe(t.muted)
+  expect(find(off, x => x.type === 'Button' && x.props.key === 'r:a')).toBeDefined()
   const sw = Switch(el, t, { key: 's', label: 'n', on: true, onChange: () => {} })
   expect(find(sw, x => x.type === 'Text' && txt(x) === '━━●').props.color).toBe(t.accent)
   expect(find(sw, x => x.type === 'Button').props.label).toBe(' n')

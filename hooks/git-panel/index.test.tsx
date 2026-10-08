@@ -161,8 +161,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await ui.find({ key: 'theme' })).toBeUndefined()
     })
 
-    test(`${surface}/${columns}: the Settings theme restyles the panel (dots, selection, frames)`, async ($, on) => {
-      const store = new Map<string, unknown>([['settings', { theme: 'dark' }]])
+    test(`${surface}/${columns}: the theme styles the panel (dots, selection, frames)`, async ($, on) => {
+      const store = new Map<string, unknown>()
       on('store.get', (_$, e) => ({ value: store.get(e.key) }))
       on('store.set', (_$, e) => {
         store.set(e.key, e.value)
@@ -174,14 +174,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await mount($)
 
       const first = layoutGraph(parseLog(LOG))[0]?.color ?? 0
-      expect((await hashRows(ui, 'dots'))?.[0]?.color).toBe(lanePalette(THEMES.dark)[first])
-      expect(lanePalette(THEMES.dark)[first]).not.toBe(LANES[first])
-      const sel = onDefaultFg(THEMES.dark.surfaceHover)
+      expect((await hashRows(ui, 'dots'))?.[0]?.color).toBe(lanePalette(THEMES.claude)[first])
+      const sel = onDefaultFg(THEMES.claude.surfaceHover)
       expect((await ui.find({ key: 'row:' + parseLog(LOG)[0]?.sha }))?.props.backgroundColor).toBe(sel)
       const frames = (await ui.findAll({ type: 'Box' })).filter(box => box.props.borderStyle === 'round')
       expect(frames.length).toBeGreaterThan(0)
       for (const box of frames.filter(b => b.props.paddingX === undefined)) {
-        expect(box.props.borderColor).toBe(THEMES.dark.border)
+        expect(box.props.borderColor).toBe(THEMES.claude.border)
       }
     })
 

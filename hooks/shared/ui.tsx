@@ -25,8 +25,6 @@
  */
 import type { ElementTable, RenderChildren, RenderSurface } from 'claude-code'
 
-import type { ThemeName } from '../../types'
-import { THEME_NAMES } from './theme'
 import type { Theme } from './theme'
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'link'
@@ -402,24 +400,6 @@ export function Skeleton(el: ElementTable, t: Theme, p: { width?: number; rows?:
   )
 }
 
-export type HeaderProps = { title: string; themeName: ThemeName; onTheme: (next: ThemeName) => void; surface?: RenderSurface }
-
-/** Pane title + a cycling theme Button (key `theme`). */
-export function Header(el: ElementTable, t: Theme, p: HeaderProps) {
-  const { Box, Text } = el
-  const next = THEME_NAMES[(THEME_NAMES.indexOf(p.themeName) + 1) % THEME_NAMES.length] as ThemeName
-
-  return (
-    <Box key="header" flexDirection="column">
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <Text bold color={t.text}>{p.title}</Text>
-        {Btn(el, t, { key: 'theme', label: `theme: ${p.themeName} ▾`, variant: 'outline', size: 'sm', onPress: () => p.onTheme(next), surface: p.surface })}
-      </Box>
-      {Separator(el, t)}
-    </Box>
-  )
-}
-
 /* ---- Form components (A3). Pure, same style; Button keys are the `key` given, once per drawing. ---- */
 
 /** Terminal: a colored glyph Text beside a plain Button carrying the label; native Button elsewhere. */
@@ -525,14 +505,23 @@ export function Checkbox(el: ElementTable, t: Theme, p: { key: string; label: st
 }
 
 /** Vertical or horizontal radio group, `◉` / `○`; each Button key is `<key>:<option value>`. */
-export function RadioGroup(el: ElementTable, t: Theme, p: { key: string; options: readonly { value: string; label: string }[]; value: string; onChange: (v: string) => void; row?: boolean; surface?: RenderSurface }) {
-  const { Box } = el
+/** Radio options in a row or a column; a `disabled` one is muted text, no Button: it cannot be pressed or focused. */
+export function RadioGroup(el: ElementTable, t: Theme, p: { key: string; options: readonly { value: string; label: string; disabled?: boolean }[]; value: string; onChange: (v: string) => void; row?: boolean; surface?: RenderSurface }) {
+  const { Box, Text } = el
 
   return (
     // A row wraps where it runs out of room (no row gap), never squeezing a glyph away.
     <Box key={p.key} flexDirection={p.row === true ? 'row' : 'column'} flexWrap={p.row === true ? 'wrap' : 'nowrap'} columnGap={p.row === true ? 2 : 0}>
       {p.options.map(o => {
         const on = o.value === p.value
+
+        if (o.disabled === true) {
+          return (
+            <Box key={p.key + ':' + o.value + ':off'} flexDirection="row" flexShrink={0}>
+              <Text color={t.muted}>{(on ? '◉' : '○') + ' ' + o.label}</Text>
+            </Box>
+          )
+        }
 
         return Pressable(el, t, { key: p.key + ':' + o.value, glyph: on ? '◉' : '○', color: on ? t.accent : t.text, label: o.label, onPress: () => p.onChange(o.value), surface: p.surface })
       })}
