@@ -70,6 +70,11 @@ test('settingsOf keeps valid fields only', () => {
   })
 })
 
+test('settingsOf keeps a known fileIcons only', () => {
+  expect(settingsOf({ fileIcons: 'nerd' })).toEqual({ fileIcons: 'nerd' })
+  expect(settingsOf({ fileIcons: 'emoji' })).toEqual({})
+})
+
 test('settingsOf keeps a boolean autoOpen only', () => {
   expect(settingsOf({ autoOpen: false })).toEqual({ autoOpen: false })
   expect(settingsOf({ autoOpen: 'no' })).toEqual({})

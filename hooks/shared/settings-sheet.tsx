@@ -39,6 +39,7 @@ export type SheetProps = {
   rows: number // the panel body's rows
   settings: SettingsState
   keymap: 'jetbrains' | 'vscode' // the preset in effect (settings, else userConfig)
+  fileIcons: 'off' | 'nerd' | 'basic' // the icons in effect (settings, else by the terminal font)
   keys: string // the overrides field's text
   keysError?: string
   onChange: (patch: Partial<SettingsState>) => void
@@ -60,10 +61,10 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
   const s = p.settings
   const surface = p.surface
   const cardW = sheetWidth(p.cols)
-  // The card's rows as drawn below (frame 2, title, 5 headings, 7 rows, the
+  // The card's rows as drawn below (frame 2, title, 5 headings, 8 rows, the
   // keys field 5, separator, footer): centers it; a wrapped row adds one,
   // which the shadow follows by itself.
-  const cardH = 2 + 1 + 5 + 7 + 5 + 1 + 1
+  const cardH = 2 + 1 + 5 + 8 + 5 + 1 + 1
   const area = Math.max(1, p.rows - 1)
   const top = centerOffset(area, cardH + 1)
   const left = centerOffset(p.cols, cardW + 1)
@@ -143,6 +144,11 @@ export function SettingsSheet(el: ElementTable, t: Theme, p: SheetProps) {
             'settings:l:mode',
             'Default mode',
             radio('settings:mode', s.explorerMode ?? DEFAULTS.explorerMode, [['files', 'Files'], ['unity', 'Unity']], v => p.onChange({ explorerMode: v as 'files' | 'unity' })),
+          )}
+          {line(
+            'settings:l:icons',
+            'File icons',
+            radio('settings:icons', p.fileIcons, [['off', 'Off'], ['nerd', 'Nerd Font'], ['basic', 'Basic']], v => p.onChange({ fileIcons: v as 'off' | 'nerd' | 'basic' })),
           )}
           {heading('settings:h:git', 'Git')}
           {line(

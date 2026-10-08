@@ -4,6 +4,7 @@ import { resolveTheme, settingsOf } from './settings'
 import {
   XTERM16,
   ccThemeName,
+  parseTabbyFonts,
   parseTabbyScheme,
   tabbyConfigPaths,
   themeFromClaudeCode,
@@ -89,4 +90,11 @@ test("resolveTheme: Claude Code's theme, painted on the terminal scheme when kno
   expect(resolveTheme({}, '', { scheme: ELEMENTARY_SCHEME }).canvas).toBe('#181818')
   // a theme choice saved by an older version is dropped
   expect(settingsOf({ theme: 'terminal' })).toEqual({})
+})
+
+test('parseTabbyFonts: terminal.font and its fallbackFont, quoted or bare', () => {
+  const yaml = ['terminal:', '  font: "JetBrainsMono Nerd Font"', '  fontSize: 14', '  fallbackFont: Symbols Nerd Font Mono', 'hotkeys:', '  font: not this'].join('\n')
+  expect(parseTabbyFonts(yaml)).toEqual(['JetBrainsMono Nerd Font', 'Symbols Nerd Font Mono'])
+  expect(parseTabbyFonts('terminal:\n  fontSize: 14\n')).toEqual([])
+  expect(parseTabbyFonts('appearance:\n  font: Menlo\n')).toEqual([])
 })

@@ -27,6 +27,7 @@ import {
 } from './tree'
 import type { ChangeMarks, Entry, Mode, Row } from './tree'
 import { deleteTargets, pruneMarks, rangeOf, toggleMark } from './marks'
+import { iconChoice, iconOf, iconsFor } from './icons'
 import {
   convertArgv,
   CELL_H,
@@ -65,7 +66,7 @@ import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
 import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
-import { THEME_POLL_MS, parseTabbyScheme, resetThemeEnv, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
+import { THEME_POLL_MS, parseTabbyFonts, parseTabbyScheme, resetThemeEnv, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import type { Theme } from '../shared/theme'
 import { Btn, Tabs, onDefaultFg } from '../shared/ui'
 import {
@@ -260,7 +261,9 @@ const explorerThemeEnv = async ($: EngineInterface, force = false): Promise<void
         const stat = await statOf($, path)
         if (stat === undefined) continue
         if (stat.mtimeMs !== env.mtime) {
-          env.scheme = parseTabbyScheme(await $.fs.read(path))
+          const text = await $.fs.read(path)
+          env.scheme = parseTabbyScheme(text)
+          env.fonts = parseTabbyFonts(text)
           env.mtime = stat.mtimeMs
         }
         break
@@ -2543,6 +2546,10 @@ export const register = (on: On, options?: PluginOptions): void => {
     // foreground, so fills are darkened.
     const sel = onDefaultFg(t.surfaceHover)
     const surface = e.surface
+    // The Files icons: the choice (Settings, else by the terminal font) as this
+    // surface draws it.
+    const fileIcons = iconChoice(settingsNow.fileIcons, themeEnv.fonts)
+    const icons = iconsFor(fileIcons, surface)
     const root = await rootOf($, state)
     const expanded = new Set(state.expanded)
     await Promise.all([root, ...expanded].map(dir => ensureListed($, dir)))
@@ -3006,6 +3013,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             rows: fullRows,
             settings: settingsNow,
             keymap: keymapNameOf(pluginOptions, settingsNow),
+            fileIcons,
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
             onChange: patch => void changeSettings($, patch),
@@ -3184,14 +3192,17 @@ export const register = (on: On, options?: PluginOptions): void => {
               // `+` added, `*` edited (a dir: something under it), after the name.
               const change = footer.branch === undefined ? undefined : markOf(row.path, footer.marks)
               const changeColor = change === '+' ? t.success : t.warning
+              // The kind's icon and a space before the name (Settings `fileIcons`).
+              const icon = iconOf(row.name, row.kind, row.isExpanded, icons)
+              const iconColor = icon === undefined || isIgnored ? t.muted : t[icon.role]
               // The row's room: frame (2) and vertical bar (1).
               const room = treeCols - 2 - 1
               const label = (cells: number) =>
-                // the name's room past mark, rails, arrow and change mark; no
-                // horizontal scroll in list sections, so a long name is cut
+                // the name's room past mark, rails, arrow, icon and change
+                // mark; no horizontal scroll in list sections, so a long name is cut
                 fitLabel(
                   row.kind === 'dir' ? row.name + '/' : row.name,
-                  Math.max(3, cells - 1 - 2 * row.depth - 2 - (change === undefined ? 0 : 2)),
+                  Math.max(3, cells - 1 - 2 * row.depth - 2 - (icon === undefined ? 0 : 2) - (change === undefined ? 0 : 2)),
                 )
               const arrow = row.kind === 'dir' ? (row.isExpanded ? '▾ ' : '▸ ') : '  '
               if (canEdit && Client !== undefined) {
@@ -3211,6 +3222,7 @@ export const register = (on: On, options?: PluginOptions): void => {
                         isCursor: state.cursor === row.path && state.cursor !== state.selected,
                         isIgnored,
                         label: label(room - 1),
+                        ...(icon === undefined ? {} : { icon: { glyph: icon.glyph, color: iconColor } }),
                         ...(change === undefined ? {} : { change }),
                         colors: { accent: t.accent, border: t.border, muted: t.muted, selection: sel, change: changeColor },
                       }}
@@ -3241,6 +3253,7 @@ export const register = (on: On, options?: PluginOptions): void => {
                   ) : (
                     <Text color={isIgnored ? t.muted : t.accent}>{arrow}</Text>
                   )}
+                  {icon !== undefined && <Text color={iconColor}>{icon.glyph + ' '}</Text>}
                   <Button
                     key={'row:' + row.path}
                     plain

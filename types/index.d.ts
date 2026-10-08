@@ -5,6 +5,7 @@ export type SettingsState = {
   keymap?: 'jetbrains' | 'vscode' // editor preset; absent falls back to userConfig `editorKeymap`
   keys?: string // JSON of action to chord or chords, merged over userConfig `editorKeys`
   explorerMode?: 'files' | 'unity' // Explorer's mode for a root with none saved
+  fileIcons?: 'off' | 'nerd' | 'basic' // Files tree icons; absent: `nerd` when the terminal font is a Nerd Font (Tabby), else `off`
   gitTab?: 'overview' | 'graph' | 'changelog' // Git's panel tab while it has none chosen
   gitLimit?: number // commits per page
   autoOpen?: boolean // a new session opens the panels, an exit closes them; absent is true

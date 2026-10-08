@@ -5,8 +5,9 @@ import { rowHit } from './tree'
 import type { ChangeMark, Entry, RowHit } from './tree'
 
 // One tree row as the Files section draws it: the selection mark, a rail per
-// depth level, the dir arrow, the name (already cut to the room), then its
-// change mark (`+` added, `*` edited) when it has one. The
+// depth level, the dir arrow, the kind's icon when icons are on, the name
+// (already cut to the room), then its change mark (`+` added, `*` edited)
+// when it has one. The
 // keyboard ring sits on the blank Button after the region, so `isCursor`
 // underlines the name to show where it is.
 //
@@ -23,6 +24,7 @@ type Props = {
   isCursor: boolean
   isIgnored: boolean
   label: string
+  icon?: { glyph: string; color: string } // one cell, a space after it
   change?: ChangeMark
   colors: { accent: string; border: string; muted: string; selection: string; change: string }
 }
@@ -55,6 +57,7 @@ const RowClient: ClientModule<Props, State> = (props, surface) => {
       <Text color={props.isIgnored ? colors.muted : colors.accent}>
         {props.kind === 'dir' ? (props.isExpanded ? '▾ ' : '▸ ') : '  '}
       </Text>
+      {props.icon !== undefined && <Text color={props.icon.color}>{props.icon.glyph + ' '}</Text>}
       <Text dimColor={props.isIgnored} underline={props.isCursor} wrap="truncate-end">
         {props.label}
       </Text>

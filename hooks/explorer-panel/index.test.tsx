@@ -3662,3 +3662,52 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: 'Theme' })).toBeUndefined()
   })
 }
+
+// The Files icons (Settings `fileIcons`; absent: on for a Nerd Font in Tabby's config).
+for (const surface of ['terminal', 'desktop'] as const) {
+  const mountIcons = async ($: Engine, on: On, settingsValue: Record<string, unknown>) => {
+    mock.clock(on)
+    settingsStore(on, [['settings', settingsValue]])
+    fake(on)
+    on('ui.panes', () => ({ value: [{ id: 'ide-explorer', isFocused: true }] as never }))
+    on('ui.focus', () => ({}))
+    await $.session.start(start(surface))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })
+    const iconOfRow = async (path: string) =>
+      ((await ui.find({ key: 'item:' + path }))?.props.props as { icon?: { glyph: string; color: string } } | undefined)?.icon
+    const labelOf = async (path: string) => ((await ui.find({ key: 'item:' + path }))?.props.props as { label: string }).label
+
+    return { ui, iconOfRow, labelOf }
+  }
+  // Nerd Fonts glyphs on the terminal; the desktop draws with its own font.
+  const folder = surface === 'terminal' ? '\uf07b' : '■'
+  const file = surface === 'terminal' ? '\ue64e' : '•'
+
+  test(`${surface}: file icons are off by default outside a Nerd Font`, async ($, on) => {
+    envOf({})
+    const { iconOfRow, labelOf } = await mountIcons($, on, {})
+    expect(await iconOfRow('/proj/src')).toBeUndefined()
+    expect(await labelOf('/proj/src')).toBe('src/')
+  })
+
+  test(`${surface}: the Nerd Font choice draws a glyph per kind before the name`, async ($, on) => {
+    envOf({})
+    const { iconOfRow } = await mountIcons($, on, { fileIcons: 'nerd' })
+    expect(await iconOfRow('/proj/src')).toEqual({ glyph: folder, color: themeFromClaudeCode('dark', undefined).accent })
+    expect((await iconOfRow('/proj/notes.txt'))?.glyph).toBe(file)
+  })
+
+  test(`${surface}: a Nerd Font in Tabby's config turns icons on; Settings turns them off`, async ($, on) => {
+    envOf({ TERM_PROGRAM: 'Tabby', TABBY_CONFIG_DIRECTORY: '/tabby-cfg' })
+    FILES['/tabby-cfg/config.yaml'] = TABBY_YAML('Elementary', '#181818') + '\n  font: JetBrainsMono Nerd Font Mono'
+    MTIMES['/tabby-cfg/config.yaml'] = 3
+    const { ui, iconOfRow } = await mountIcons($, on, {})
+    expect((await iconOfRow('/proj/src'))?.glyph).toBe(folder)
+
+    await ui.press({ key: 'settings' })
+    await ui.press({ key: 'settings:icons:off' })
+    expect(await iconOfRow('/proj/src')).toBeUndefined()
+    await ui.press({ key: 'settings:icons:basic' })
+    expect((await iconOfRow('/proj/src'))?.glyph).toBe('■')
+  })
+}

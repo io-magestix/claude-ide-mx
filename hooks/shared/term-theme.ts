@@ -77,6 +77,21 @@ export const parseTabbyScheme = (yaml: string): TermScheme | undefined => {
   return (isLight ? schemeAt(lines, 'lightColorScheme') : undefined) ?? schemeAt(lines, 'colorScheme')
 }
 
+// The font families Tabby draws with: `terminal.font` and its
+// `terminal.fallbackFont` (a symbols font is often set there), as written.
+export const parseTabbyFonts = (yaml: string): string[] => {
+  const lines = yaml.split(/\r?\n/)
+  const terminal = lines.findIndex(line => /^terminal:\s*$/.test(line))
+  const fonts: string[] = []
+  for (let i = terminal + 1; terminal >= 0 && i < lines.length && !/^\S/.test(lines[i] ?? ''); i++) {
+    const font = /^ {2}(?:font|fallbackFont):(.*)$/.exec(lines[i] ?? '')
+    const family = font === null ? '' : scalar(font[1] ?? '')
+    if (family !== '') fonts.push(family)
+  }
+
+  return fonts
+}
+
 // xterm's 16 colors, for Claude Code's ANSI themes where the terminal's are not known.
 export const XTERM16 = [
   '#000000', '#cd0000', '#00cd00', '#cdcd00', '#0000ee', '#cd00cd', '#00cdcd', '#e5e5e5',
@@ -187,12 +202,13 @@ export const themeFromClaudeCode = (name: string | undefined, scheme: TermScheme
 // What the theme was last read from, shared by the two panels
 // (module state: a reload reads again). `configPaths`: the Tabby config.yaml
 // candidates (empty outside Tabby; undefined until looked up); `scheme`, its
-// scheme as of `mtime`; `ccTheme`, Claude Code's `/config` theme.
+// scheme and font families as of `mtime`; `ccTheme`, Claude Code's `/config` theme.
 export const themeEnv = {
   configPaths: undefined as string[] | undefined,
   checkedAt: 0,
   mtime: -1,
   scheme: undefined as TermScheme | undefined,
+  fonts: [] as string[],
   ccTheme: undefined as string | undefined,
 }
 
@@ -220,5 +236,6 @@ export const resetThemeEnv = (): void => {
   themeEnv.checkedAt = 0
   themeEnv.mtime = -1
   themeEnv.scheme = undefined
+  themeEnv.fonts = []
   themeEnv.ccTheme = undefined
 }

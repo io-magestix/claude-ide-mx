@@ -37,6 +37,8 @@ export const settingsOf = (raw: unknown): SettingsState | undefined => {
   if (typeof r.keys === 'string') out.keys = r.keys
   const explorerMode = oneOf(r.explorerMode, ['files', 'unity'] as const)
   if (explorerMode !== undefined) out.explorerMode = explorerMode
+  const fileIcons = oneOf(r.fileIcons, ['off', 'nerd', 'basic'] as const)
+  if (fileIcons !== undefined) out.fileIcons = fileIcons
   const gitTab = oneOf(r.gitTab, ['overview', 'graph', 'changelog'] as const)
   if (gitTab !== undefined) out.gitTab = gitTab
   if (typeof r.gitLimit === 'number' && Number.isInteger(r.gitLimit) && r.gitLimit > 0) out.gitLimit = r.gitLimit

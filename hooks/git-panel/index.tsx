@@ -2,13 +2,14 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register, RenderElement } from 'claude-code'
 
 import type { GitState, SettingsState, SettingsUi } from '../../types'
+import { iconChoice } from '../explorer-panel/icons'
 import { toggleMark } from '../explorer-panel/marks'
 import { window as windowOf } from '../explorer-panel/tree'
 import { sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
 import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from '../shared/scrollbar'
 import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
 import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
-import { THEME_POLL_MS, parseTabbyScheme, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
+import { THEME_POLL_MS, parseTabbyFonts, parseTabbyScheme, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { GIT_PREFIX, SPLIT_PANE, gitKeyOf, prefixKeys, seat } from '../shared/layout'
 import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
@@ -198,7 +199,9 @@ const gitThemeEnv = async ($: EngineInterface): Promise<void> => {
         const stat = await $.fs.stat(path).catch(() => undefined)
         if (stat === undefined) continue
         if (stat.mtimeMs !== env.mtime) {
-          env.scheme = parseTabbyScheme(await $.fs.read(path))
+          const text = await $.fs.read(path)
+          env.scheme = parseTabbyScheme(text)
+          env.fonts = parseTabbyFonts(text)
           env.mtime = stat.mtimeMs
         }
         break
@@ -935,6 +938,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             rows: bodyRows,
             settings: settingsNow,
             keymap: keymapNameOf(pluginOptions, settingsNow),
+            fileIcons: iconChoice(settingsNow.fileIcons, themeEnv.fonts),
             keys: sheet.keys ?? settingsNow.keys ?? '',
             keysError: sheet.keysError,
             onChange: patch => void changeSettings($, patch),
