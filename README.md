@@ -6,37 +6,34 @@ An Explorer and a Git panel inside Claude Code, driven by the mouse (plugin `ide
 
 ```sh
 claude plugin marketplace add io-magestix/claude-ide-mx   # or a local clone's path
-claude plugin install ide-panes@ide-panes                  # user scope by default
+claude plugin install ide-panes@ide-panes
 ```
 
-The plugin uses function hooks, early access in Claude Code: run it with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` set (e.g. exported in your shell profile). To run it from a clone without installing: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir <path>`.
+The plugin uses function hooks, an early-access feature: set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` (e.g. in your shell profile). To run from a clone without installing: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir <path>`.
 
-The panels open with each new session and close on exit (Settings → Session). `/ide-panels` opens them by hand.
-
-## Layout
-
-One pane: Explorer on top (70%), Git below (30%), asking for 20% of the window's width. Drag the seam between them to resize. Outside a git repo Git shrinks to a two-row note; once a repo appears (`git init`, a clone) it comes back at 30%.
+The panels open with each new session and close on exit; `/ide-panels` opens them by hand.
 
 ## Panels
 
-- **Explorer**: file tree (Files, or Unity with `.meta` GUID references) with git change marks (`+` added, `*` edited), preview of code, Markdown, images and SVG, an in-pane editor, new file, delete, copy path, multi-select (ctrl/shift-click).
-- **Git**: branches, commits with a lane graph and per-commit info, the working tree's changes as a tree with diffs, a diff view per commit, `Fetch` and `Pull` (`--ff-only`).
+One pane, 20% of the window wide: the Explorer on top, Git below, with a draggable seam between them. Outside a git repo, Git shrinks to a two-row note until a repo appears.
 
-## Settings (⚙ in the Explorer's title row)
+- **Explorer**: file tree (Files, or Unity with `.meta` GUID references) with file icons and git change marks; preview of code, Markdown, images and SVG; an in-pane editor; new file, delete, copy path and multi-select (ctrl/shift-click).
+- **Git**: branches, commits with a lane graph and commit info, working-tree changes with diffs, a diff view per commit, `Fetch` and `Pull` (`--ff-only`).
 
-The panels always follow Claude Code's `/theme` (painted on Tabby's color scheme when running in Tabby).
+## Settings
 
-- **Accent from /color**: your session color tints the accent and frames.
-- **Session**: open on start, close on exit.
-- Editor keymap (JetBrains or VS Code) and key overrides, panel defaults, reset layout.
+Open them with ⚙ in the title row. The panels follow Claude Code's theme (on Tabby, its color scheme).
+
+- Accent from `/color`, open on start and close on exit.
+- File icons: Nerd Font, Basic or Off. Nerd Font is chosen by default when Tabby's font is a Nerd Font.
+- Editor keymap (JetBrains or VS Code) with key overrides, panel defaults, reset layout.
 
 Plugin options (`/config`): `editorKeymap`, `editorKeys`, `previewEngines` (external commands that preview more file types; see `.claude-plugin/plugin.json`).
 
 ## Develop
 
 ```sh
-claude plugin validate .claude-plugin/plugin.json   # the plugin: hooks and $.state keys
-claude plugin validate .                              # the marketplace
+claude plugin validate .claude-plugin/plugin.json
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test .
 npx -p typescript tsc -p .    # after a first load has generated .claude-plugin/types/
 ```
