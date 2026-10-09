@@ -1,6 +1,6 @@
 # claude-ide
 
-An Explorer and a Git panel inside Claude Code, driven by the mouse (plugin `ide-panes`).
+An Explorer and a Git panel inside Claude Code, driven by the mouse (plugin `ide-panes`). Fork of [eLeSTRaGo-Dev/claude-ide](https://github.com/eLeSTRaGo-Dev/claude-ide).
 
 ## Install
 
