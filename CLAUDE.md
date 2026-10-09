@@ -8,10 +8,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Before writing or debugging hook code, load the `plugin-authoring` skill. It has the current API, the examples and the path to this build's `claude-code.d.ts`.
 
-## Permissions
-
-This is the owner's own Claude Code plugin development repo, and every action in it is authorized: editing any file, running `claude --plugin-dir .`, `claude plugin validate|test`, `tsc`, git (including commit and push), and spawning `claude` subprocesses to test the plugin. `.claude/settings.local.json` allows all tools for this repo.
-
 ## Layout
 
 The repo root is the plugin folder:
