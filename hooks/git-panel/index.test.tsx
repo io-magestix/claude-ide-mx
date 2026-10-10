@@ -78,6 +78,7 @@ const fake = (
     if (sub === 'for-each-ref') return result(BRANCHES)
     if (sub === 'fetch') return result('')
     if (sub === 'pull') return result('', 128, 'fatal: Not possible to fast-forward, aborting.\n')
+    if (sub === 'push') return result('', 0, 'Everything up-to-date\n')
     if (sub === 'log') return result(log)
     if (sub === 'diff') {
       return e.argv.includes('--no-index')
@@ -155,8 +156,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       // the title, the tabs and the actions share the row, in that order
       const row = (await ui.findAll({ type: 'Button' }))
         .map(b => b.key ?? '')
-        .filter(k => k.startsWith('tab:') || ['back', 'refresh', 'fetch', 'pull'].includes(k))
-      expect(row).toEqual(['tab:overview', 'tab:graph', 'tab:changelog', 'fetch', 'pull'])
+        .filter(k => k.startsWith('tab:') || ['back', 'refresh', 'fetch', 'pull', 'push'].includes(k))
+      expect(row).toEqual(['tab:overview', 'tab:graph', 'tab:changelog', 'fetch', 'pull', 'push'])
       expect((boxes.find(box => box.key === 'header:tabs')?.text ?? '').startsWith(' Git')).toBe(true)
       expect(await ui.find({ key: 'refresh' })).toBeUndefined()
       // the theme lives in Settings, not here
@@ -521,7 +522,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     ).toBeGreaterThan(0)
   })
 
-  test(`${surface}: fetch and pull run git and report in a toast`, async ($, on) => {
+  test(`${surface}: fetch, pull and push run git and report in a toast`, async ($, on) => {
     mock.store(on)
     const calls: string[][] = []
     const toasts: string[] = []
@@ -549,6 +550,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'pull' })
     expect(calls).toContainEqual(['git', 'pull', '--ff-only'])
     expect(toasts.at(-1)).toBe('git pull: failed: fatal: Not possible to fast-forward, aborting.')
+    expect((await ui.find({ key: 'push' }))?.props.label).toBe('Push')
+    await ui.press({ key: 'push' })
+    expect(calls).toContainEqual(['git', 'push'])
+    expect(toasts.at(-1)).toBe('git push: Everything up-to-date')
   })
 }
 
@@ -1793,8 +1798,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'tab:graph' })
     await ui.press({ key: 'fetch' })
     await ui.press({ key: 'pull' })
+    await ui.press({ key: 'push' })
     expect(await isOn(ui, 'tab:overview')).toBe(true)
-    expect(calls.some(a => a[1] === 'fetch' || a[1] === 'pull')).toBe(false)
+    expect(calls.some(a => a[1] === 'fetch' || a[1] === 'pull' || a[1] === 'push')).toBe(false)
 
     await ui.press({ key: 'settings:cancel' })
     await ui.press({ key: 'tab:graph' })

@@ -580,14 +580,15 @@ export const copyTextOf = (row: BranchRow): string | undefined => {
   return row.key.replace(/^[lr]:/, '') + '/'
 }
 
-// The two calls that touch the repo: fetch every remote, and a pull that
-// only fast-forwards (it fails rather than merging).
-export type RemoteAction = 'fetch' | 'pull'
+// The three calls that touch the repo or its remotes: fetch every remote, a
+// pull that only fast-forwards (it fails rather than merging), and a push of
+// the current branch to its upstream.
+export type RemoteAction = 'fetch' | 'pull' | 'push'
 
 export const remoteArgv = (action: RemoteAction): string[] =>
-  action === 'fetch' ? ['git', 'fetch', '--all'] : ['git', 'pull', '--ff-only']
+  action === 'fetch' ? ['git', 'fetch', '--all'] : action === 'pull' ? ['git', 'pull', '--ff-only'] : ['git', 'push']
 
-// A short line for a toast from a finished fetch or pull.
+// A short line for a toast from a finished fetch, pull or push.
 export const remoteSummary = (
   action: RemoteAction,
   exitCode: number,

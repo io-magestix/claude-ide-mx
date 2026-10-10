@@ -402,6 +402,13 @@ test('copyTextOf: branch name, folder path with /, nothing for a category', () =
 test('remote actions: argv and summaries', () => {
   expect(remoteArgv('fetch')).toEqual(['git', 'fetch', '--all'])
   expect(remoteArgv('pull')).toEqual(['git', 'pull', '--ff-only'])
+  expect(remoteArgv('push')).toEqual(['git', 'push'])
+  expect(remoteSummary('push', 0, '', 'To github.com:o/r.git\n   abc1234..def5678  main -> main\n')).toBe(
+    'git push: abc1234..def5678  main -> main',
+  )
+  expect(remoteSummary('push', 128, '', 'fatal: The current branch x has no upstream branch.\n')).toBe(
+    'git push: failed: fatal: The current branch x has no upstream branch.',
+  )
   expect(remoteSummary('pull', 0, 'Already up to date.\n', '')).toBe('git pull: Already up to date.')
   expect(remoteSummary('fetch', 0, '', 'Fetching origin\n')).toBe('git fetch: done')
   expect(remoteSummary('pull', 128, '', 'fatal: Not possible to fast-forward, aborting.\n')).toBe(

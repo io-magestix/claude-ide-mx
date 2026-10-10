@@ -227,7 +227,7 @@ const settingsCancel = async ($: EngineInterface): Promise<void> => {
   await update($, settingsUi, () => ({}))
 }
 
-// Git output is cached here, not in $.state; Bash, fetch and pull clear it;
+// Git output is cached here, not in $.state; Bash, fetch, pull and push clear it;
 // Write/Edit/NotebookEdit drop the status, show and change entries (`touched`).
 let repoRoot: string | null | undefined
 let branchCache: Branch[] | undefined
@@ -518,10 +518,10 @@ const rowsOf = (state: GitState): ChangeRow[] =>
 const fit = (text: string, width: number): string =>
   text.length > width ? text.slice(0, Math.max(1, width - 1)) + '…' : text
 
-// The fetch or pull running now; a second press waits for it to finish.
+// The fetch, pull or push running now; a second press waits for it to finish.
 let busy: RemoteAction | undefined
 
-// Runs a fetch or pull (no credential prompt: it fails instead of hanging),
+// Runs a fetch, pull or push (no credential prompt: it fails instead of hanging),
 // reports it in a toast and reloads every cached view of the repo.
 const remote = async ($: EngineInterface, action: RemoteAction): Promise<void> => {
   if (busy !== undefined) return
@@ -1843,6 +1843,15 @@ export const register = (on: On, options?: PluginOptions): void => {
                 variant: 'primary',
                 surface,
                 onPress: asleep(() => remote($, 'pull')),
+              })}
+            </Box>
+            <Box flexShrink={0}>
+              {Btn(elements, t, {
+                key: 'push',
+                label: busy === 'push' ? 'Pushing…' : 'Push',
+                variant: 'secondary',
+                surface,
+                onPress: asleep(() => remote($, 'push')),
               })}
             </Box>
           </Box>
