@@ -15,7 +15,8 @@ type BranchHit = 'arrow' | 'name'
 //
 // Pointer: the shared row gesture (`row-gesture.ts`) over `branchHit`: a click
 // posts `{ hit }` (`arrow` on a folder's arrow, `name` elsewhere), a
-// double-click `{ hit: 'double' }`.
+// double-click `{ hit: 'double' }` (Git opens or closes a folder or
+// category, and copies a branch's full ref).
 type Props = {
   depth: number
   isFolder: boolean

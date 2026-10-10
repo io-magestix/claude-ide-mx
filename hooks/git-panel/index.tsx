@@ -9,6 +9,7 @@ import { BAR, H_EDGE, H_INNER, THUMB, barRuns, clamp, scrollbar } from '../share
 import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
 import { PaneButtons, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyFonts, parseTabbyScheme, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
+import { DOUBLE_MS } from '../shared/row-gesture'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { GIT_PREFIX, SPLIT_PANE, gitKeyOf, prefixKeys, seat } from '../shared/layout'
 import { Badge, Btn, Tabs, onDefaultFg } from '../shared/ui'
@@ -19,7 +20,6 @@ import {
   headNameArgv,
   headRefArgv,
   refsArgv,
-  copyTextOf,
   remoteArgv,
   remoteSummary,
   shortDir,
@@ -252,6 +252,10 @@ const containsCache = new Map<string, Contains>()
 // Transient, so module variables, not `$.state`.
 let hovered: string | undefined
 let commitWindow: { element: string; shas: string[] } = { element: '', shas: [] }
+// The Files folder (Change Log, diff view) pressed last and when: a press of
+// it again within DOUBLE_MS is a double-click's second click, which keeps the
+// first click's toggle instead of undoing it.
+let folderPress: { key: string; at: number } | undefined
 // Branch names a card lists before `+N more`: half per group, all of it
 // when the other group is empty.
 const CARD_NAMES = 8
@@ -626,7 +630,7 @@ const watchGit = ($: EngineInterface): void => {
   }
 }
 
-// A full ref (or a folder's prefix) copied by a double-click on a Branches row.
+// A branch's full ref (`origin/main`) copied by a double-click on its row.
 const copyRef = async (
   $: EngineInterface,
   text: string,
@@ -921,8 +925,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     }
     if (element.startsWith('bitem:')) {
       // A Branches row's Client (branch-client.tsx): the arrow opens or closes
-      // a folder, the name selects a branch (a folder's name does nothing), a
-      // double-click copies the full ref or the folder's prefix.
+      // a folder, the name selects a branch (a folder's name does nothing); a
+      // double-click opens or closes a folder or category and copies a
+      // branch's full ref.
       const key = element.slice('bitem:'.length)
       const hit = (e.data as { hit?: unknown } | null)?.hit
       const state = await read($, git)
@@ -931,12 +936,9 @@ export const register = (on: On, options?: PluginOptions): void => {
         r.kind === 'branch' ? 'b:' + r.branch.name === key : r.key === key,
       )
       if (row === undefined) return {}
-      if (hit === 'arrow' && row.kind === 'folder') await toggleFolder($, row.key)
+      if ((hit === 'arrow' || hit === 'double') && row.kind === 'folder') await toggleFolder($, row.key)
       else if (hit === 'name' && row.kind === 'branch') await selectRef($, row.branch.name)
-      else if (hit === 'double') {
-        const text = copyTextOf(row)
-        if (text !== undefined) await copyRef($, text, e.surface)
-      }
+      else if (hit === 'double' && row.kind === 'branch') await copyRef($, row.branch.name, e.surface)
       $.ui.invalidate('ui.render')
 
       return {}
@@ -1390,8 +1392,14 @@ export const register = (on: On, options?: PluginOptions): void => {
         detailLeft: 0,
       }))
 
-    const toggleChange = (key: string) =>
-      update($, git, s => ({ ...s, changeCollapsed: toggled(s.changeCollapsed ?? [], key) }))
+    const toggleChange = async (key: string) => {
+      const at = await $.clock.now()
+      const last = folderPress
+      const isSecond = last?.key === key && at - last.at < DOUBLE_MS
+      folderPress = isSecond ? undefined : { key, at }
+      if (isSecond) return
+      await update($, git, s => ({ ...s, changeCollapsed: toggled(s.changeCollapsed ?? [], key) }))
+    }
 
     // The section's name sits on its top border. A bordered Box clips its
     // children, so the title is an absolute Box after it, at top={0}, in an

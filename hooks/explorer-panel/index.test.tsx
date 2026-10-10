@@ -414,7 +414,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'item:/proj/src/main.ts' })).toBeUndefined()
   })
 
-  test(`${surface}: a double-click only selects; copy name and copy full path copy the cursor's row`, async ($, on) => {
+  test(`${surface}: a double-click selects a file, opens or closes a dir; copy name and copy full path copy the cursor's row`, async ($, on) => {
     mock.store(on)
     fake(on)
     const copied: string[] = []
@@ -453,6 +453,17 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await click(ui, '/proj/src', 1)
     expect(copied).toEqual([])
     expect(await ui.find({ key: 'item:/proj/src/main.ts' })).toBeDefined()
+
+    // a double-click on a dir's name selects it and closes it, another opens it
+    await ui.advance(500)
+    await click(ui, '/proj/src', 6)
+    await click(ui, '/proj/src', 6)
+    expect(await ui.find({ key: 'item:/proj/src/main.ts' })).toBeUndefined()
+    await ui.advance(500)
+    await click(ui, '/proj/src', 6)
+    await click(ui, '/proj/src', 6)
+    expect(await ui.find({ key: 'item:/proj/src/main.ts' })).toBeDefined()
+    expect(copied).toEqual([])
 
     // `copy name` and `copy full path` copy the cursor's row
     expect((await ui.find({ key: 'copy-name' }))?.props.label).toBe('Copy Name')

@@ -15,7 +15,8 @@ import type { ChangeMark, Entry, RowHit } from './tree'
 //
 // Pointer: the shared row gesture (`row-gesture.ts`) over `rowHit`: a click
 // posts `{ hit }` (`arrow` on a dir's arrow, `name` elsewhere), a
-// double-click `{ hit: 'double' }` (the Explorer takes it as a click).
+// double-click `{ hit: 'double' }` (the Explorer opens or closes a dir, and
+// takes it as a click on a file).
 type Props = {
   depth: number
   kind: Entry['kind']

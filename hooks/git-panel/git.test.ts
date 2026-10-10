@@ -5,7 +5,6 @@ import {
   toggled,
   branchHit,
   branchTree,
-  copyTextOf,
   changeDiffArgv,
   changeGlyph,
   containsArgv,
@@ -377,26 +376,6 @@ test('branchHit: bar, rails, a folder\'s arrow, then the name', () => {
   expect([4, 5, 6, 7].map(x => branchHit(2, true, x))).toEqual(['name', 'arrow', 'arrow', 'name'])
   // A branch has no arrow.
   expect([0, 1, 2, 5, 6].map(x => branchHit(2, false, x))).toEqual(['name', 'name', 'name', 'name', 'name'])
-})
-
-test('copyTextOf: branch name, folder path with /, nothing for a category', () => {
-  const b = (name: string, isRemote = false) => ({ name, sha: 'x', isHead: false, isRemote }) as const
-  const rows = branchTree(
-    [b('main'), b('feature/ui/a'), b('origin/main', true), b('origin/team/x', true)],
-    new Set(),
-  )
-  expect(rows.map(r => [r.kind === 'folder' ? r.key : r.name, copyTextOf(r)])).toEqual([
-    ['l:', undefined],
-    ['main', 'main'],
-    ['l:feature', 'feature/'],
-    ['l:feature/ui', 'feature/ui/'],
-    ['a', 'feature/ui/a'],
-    ['r:', undefined],
-    ['r:origin', 'origin/'],
-    ['main', 'origin/main'],
-    ['r:origin/team', 'origin/team/'],
-    ['x', 'origin/team/x'],
-  ])
 })
 
 test('remote actions: argv and summaries', () => {

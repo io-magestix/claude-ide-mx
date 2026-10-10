@@ -837,6 +837,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     })
 
     test(`${surface}/${columns}: Files is a tree, no view toggle; folders collapse`, async ($, on) => {
+      const clock = mock.clock(on)
       const ui = await open($, on, [], ['?? src/a.ts', ' M src/ui/b.ts', ' M top.txt', ''].join('\0'))
       await ui.press({ key: 'tab:changelog' })
 
@@ -849,8 +850,29 @@ for (const surface of ['terminal', 'desktop'] as const) {
       ])
       await ui.press({ key: 'cdir:c:src' })
       expect(await keys(ui, 'change:')).toEqual(['change:top.txt'])
+      await clock.advance(500)
       await ui.press({ key: 'cdir:c:src' })
       expect((await keys(ui, 'change:')).length).toBe(3)
+      await ui.press({ key: 'cdir:c:src/ui' })
+      expect(await keys(ui, 'change:')).toEqual(['change:top.txt', 'change:src/a.ts'])
+    })
+
+    test(`${surface}/${columns}: a double-click on a Files folder opens or closes it once`, async ($, on) => {
+      const clock = mock.clock(on)
+      const ui = await open($, on, [], ['?? src/a.ts', ' M src/ui/b.ts', ' M top.txt', ''].join('\0'))
+      await ui.press({ key: 'tab:changelog' })
+
+      // two presses 100 ms apart: the second keeps the first one's toggle
+      await ui.press({ key: 'cdir:c:src' })
+      await clock.advance(100)
+      await ui.press({ key: 'cdir:c:src' })
+      expect(await keys(ui, 'change:')).toEqual(['change:top.txt'])
+      await clock.advance(500)
+      await ui.press({ key: 'cdir:c:src' })
+      await clock.advance(100)
+      await ui.press({ key: 'cdir:c:src' })
+      expect((await keys(ui, 'change:')).length).toBe(3)
+      // a quick press of another folder is a click of its own
       await ui.press({ key: 'cdir:c:src/ui' })
       expect(await keys(ui, 'change:')).toEqual(['change:top.txt', 'change:src/a.ts'])
     })
@@ -1699,7 +1721,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await rowOf(ui, 'l:')).toMatchObject({ isOpen: true })
   })
 
-  test(`${surface}: a double-click copies the full ref, a folder's prefix, nothing on a category`, async ($, on) => {
+  test(`${surface}: a double-click copies a branch's full ref, opens or closes a folder or category`, async ($, on) => {
     const copied: string[] = []
     const toasts: string[] = []
     on('ui.copy', (_$, e) => {
@@ -1717,11 +1739,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(copied).toEqual(['origin/main'])
     expect(toasts.at(-1)).toBe('Copied: origin/main')
     await ui.post({ hit: 'double' }, { in: 'bitem:r:origin' })
-    expect(copied).toEqual(['origin/main', 'origin/'])
-    expect(toasts.at(-1)).toBe('Copied: origin/')
+    expect(await rowOf(ui, 'r:origin')).toMatchObject({ isOpen: false })
+    await ui.post({ hit: 'double' }, { in: 'bitem:r:origin' })
+    expect(await rowOf(ui, 'r:origin')).toMatchObject({ isOpen: true })
     await ui.post({ hit: 'double' }, { in: 'bitem:r:' })
-    expect(copied).toEqual(['origin/main', 'origin/'])
-    expect(await rowOf(ui, 'r:')).toMatchObject({ isOpen: true })
+    expect(await rowOf(ui, 'r:')).toMatchObject({ isOpen: false })
+    expect(copied).toEqual(['origin/main'])
   })
 
   test(`${surface}: a move rested only 200 ms shows no card`, async ($, on) => {

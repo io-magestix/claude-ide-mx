@@ -2196,11 +2196,12 @@ export const register = (on: On, options?: PluginOptions): void => {
     }
     if (e.element.startsWith('item:')) {
       // A tree row's Client (row-client.tsx): the arrow opens or closes a dir,
-      // the name selects; a double-click is just a second click.
+      // the name selects; a double-click opens or closes a dir (its first
+      // click selected it) and is a second click on a file.
       const hit = (e.data as { hit?: unknown } | null)?.hit
       const row = await rowAt($, e.element.slice(5))
       if (row === undefined) return {}
-      if (hit === 'arrow' && row.kind === 'dir') await toggle($, row.path)
+      if ((hit === 'arrow' || hit === 'double') && row.kind === 'dir') await toggle($, row.path)
       else if (hit === 'name' || hit === 'double') await press($, row)
 
       return {}

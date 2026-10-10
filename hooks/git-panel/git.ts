@@ -570,16 +570,6 @@ export const branchHit = (depth: number, isFolder: boolean, x: number): 'arrow' 
   return isFolder && x >= arrow && x < arrow + 2 ? 'arrow' : 'name'
 }
 
-// The text a Branches row copies: a branch its full name (`origin/main`),
-// a folder its path with a trailing `/` (`r:origin` → `origin/`); a category
-// row nothing.
-export const copyTextOf = (row: BranchRow): string | undefined => {
-  if (row.kind === 'branch') return row.branch.name
-  if (row.isGroup === true) return undefined
-
-  return row.key.replace(/^[lr]:/, '') + '/'
-}
-
 // The three calls that touch the repo or its remotes: fetch every remote, a
 // pull that only fast-forwards (it fails rather than merging), and a push of
 // the current branch to its upstream.
