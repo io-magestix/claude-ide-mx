@@ -996,7 +996,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     const sel = onDefaultFg(t.surfaceHover)
     const lanes = lanePalette(t)
     const surface = e.surface
-    // Settings (the title row's right end, under the pane's close mark) and its
+    // Settings (the title row's right end, left of the pane's close mark) and its
     // sheet, drawn last over the panel below the title row. The split pane has
     // one, the Explorer's, and its sheet covers both halves.
     const paneButtons = isSplit

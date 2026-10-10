@@ -3,7 +3,7 @@
  * props) -> tree; every `$` call stays in the panel's index.tsx, which passes
  * the values and the callbacks.
  *
- * Settings sits at the right end of the panel's title row (body row 0), under the
+ * Settings sits at the right end of the panel's title row (body row 0), left of the
  * pane's close ✕: the ✕ row is the engine's frame (it closes the pane; the
  * plugin cannot hide it), and a Box placed above the body (`top={-1}`) is not
  * drawn.
@@ -25,9 +25,12 @@ type FileIcons = NonNullable<SettingsState['fileIcons']>
 // The Settings Button's key.
 const SETTINGS_BUTTON = 'settings'
 
+// Blank cells between the Settings Button and the pane's close ✕ above the right end.
+const CLOSE_GAP = 8
+
 /**
  * The title row's right end: `Settings` (pressed on the open sheet = done), a
- * ghost Btn.
+ * ghost Btn, `CLOSE_GAP` cells left of the pane's close ✕.
  */
 export function PaneButtons(
   el: ElementTable,
@@ -36,7 +39,7 @@ export function PaneButtons(
 ) {
   const { Box } = el
   return (
-    <Box key="pane-buttons" flexDirection="row" gap={1}>
+    <Box key="pane-buttons" flexDirection="row" gap={1} paddingRight={CLOSE_GAP}>
       {Btn(el, t, { key: SETTINGS_BUTTON, label: 'Settings', variant: p.isOpen ? 'primary' : 'ghost', surface: p.surface, onPress: p.onSettings })}
     </Box>
   )
