@@ -58,8 +58,8 @@ import { anchorRow, expandPictures, isLinkable, linkHits, linkTarget, localPath 
 import type { LinkHit, MdView, Picture, ViewRow } from './markdown/view'
 import { headNameArgv, parseStatus, statusArgv } from '../git-panel/git'
 import { lastAgentColor, parseColorAnswer } from '../shared/color'
-import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from '../shared/scrollbar'
-import { sliceCols, widest } from '../shared/hscroll'
+import { BAR, H_EDGE, H_INNER, THUMB, barRuns, clamp, scrollbar } from '../shared/scrollbar'
+import { colsOf, sliceCols, widest } from '../shared/hscroll'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
 import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
@@ -185,6 +185,7 @@ const view = {
   treeEnd: 0,
   treeMax: 0,
   previewMax: 0,
+  treeLeftMax: 0, // Files' furthest first column (horizontal bar)
   previewLeftMax: 0, // the preview's furthest first column (horizontal bar)
   previewRows: 1,
   editRows: 1,
@@ -695,6 +696,48 @@ const toggle = async ($: EngineInterface, path: string): Promise<void> => {
 
     return { ...s, cursor: path, expanded: isOpen ? s.expanded.filter(at => at !== path) : [...s.expanded, path] }
   })
+}
+
+// Collapse All: every dir closed; the selection stays (its preview too).
+const collapseAll = async ($: EngineInterface): Promise<void> => {
+  await update($, explorer, s => ({ ...s, expanded: [], offset: 0, treeLeft: 0 }))
+}
+
+// Expand All opens at most this many dirs, so a huge tree stays drawable.
+const EXPAND_ALL_DIRS = 2000
+
+// Expand All: every dir under the root, one level at a time, except `.git`
+// and the ignored ones (dependencies, build output).
+const expandAll = async ($: EngineInterface): Promise<void> => {
+  const root = await rootOf($, await read($, explorer))
+  const found: string[] = []
+  let level = [root]
+  while (level.length > 0 && found.length < EXPAND_ALL_DIRS) {
+    await Promise.all(level.map(dir => ensureListed($, dir)))
+    const next: string[] = []
+    for (const dir of level) {
+      for (const entry of listings.get(dir) ?? []) {
+        const path = join(dir, entry.name)
+        if (entry.kind !== 'dir' || entry.name === '.git' || ignored.has(path)) continue
+        if (found.length + next.length >= EXPAND_ALL_DIRS) break
+        next.push(path)
+      }
+    }
+    found.push(...next)
+    level = next
+  }
+  await update($, explorer, s => ({ ...s, expanded: found }))
+}
+
+// Clear Preview: nothing selected, so Preview is empty; the cursor stays.
+const clearPreview = async ($: EngineInterface): Promise<void> => {
+  await update($, explorer, s => ({
+    ...s,
+    selected: undefined,
+    previewOffset: 0,
+    previewLeft: 0,
+    previewRaw: undefined,
+  }))
 }
 
 // A click on the name (or Enter): the row becomes the selection (shown in
@@ -2200,6 +2243,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     } else if (e.element === 'sb:preview') {
       const previewOffset = clamp(Math.round(to), view.previewMax)
       await update($, explorer, s => ({ ...s, previewOffset }))
+    } else if (e.element === 'hb:tree') {
+      const treeLeft = clamp(Math.round(to), view.treeLeftMax)
+      await update($, explorer, s => ({ ...s, treeLeft }))
     } else if (e.element === 'hb:preview') {
       const previewLeft = clamp(Math.round(to), view.previewLeftMax)
       await update($, explorer, s => ({ ...s, previewLeft }))
@@ -2277,7 +2323,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // right end kept for Settings; the interactive line while it asks),
     // then the bordered sections (2 rows of frame each).
     const headerRows = ask === undefined ? 1 : 2
-    const sectionRows = Math.max(5, bodyRows - headerRows)
+    const sectionRows = Math.max(6, bodyRows - headerRows)
     const footer = await footerOf($, root)
     // Outside a repo, look for one appearing (a definite answer only, not an
     // aborted call's); once one has, Git's half is back at its 30%.
@@ -2289,10 +2335,48 @@ export const register = (on: On, options?: PluginOptions): void => {
     const border = { borderStyle: 'round', borderColor: accentBorder ? t.accent : t.border } as const
     // Rows inside a section's frame.
     const innerRows = sectionRows - 2
-    treeRows = innerRows
+    const treeCols = splitAt(e.props.bodyColumns, state.split?.tree ?? 0.35, MIN_COLS)
+    // Files: its frame over the Collapse All / Expand All row. Where rows are
+    // row clients they keep their whole label and scroll sideways under a
+    // horizontal bar (which takes the frame's last inner row) once the widest
+    // is past the room: frame, vertical bar, the blank ring cell and the
+    // selection bar.
+    const treeFrameRows = sectionRows - 1
+    const isRowClient = canEdit && Client !== undefined
+    const labelOf = (row: Row): string => (row.kind === 'dir' ? row.name + '/' : row.name)
+    const changeAt = (row: Row) => (footer.branch === undefined ? undefined : markOf(row.path, footer.marks))
+    const treeVisible = Math.max(1, treeCols - 2 - BAR - 2)
+    const treeWide = isRowClient
+      ? rows.reduce(
+          (most, row) =>
+            Math.max(
+              most,
+              2 * row.depth +
+                2 +
+                (iconOf(row.name, row.kind, row.isExpanded, icons) === undefined ? 0 : 2) +
+                colsOf(labelOf(row)) +
+                (changeAt(row) === undefined ? 0 : 2),
+            ),
+          0,
+        )
+      : 0
+    const isTreeWide = treeWide > treeVisible
+    treeRows = Math.max(1, treeFrameRows - 2 - (isTreeWide ? 1 : 0))
+    view.treeLeftMax = Math.max(0, treeWide - treeVisible)
+    const treeLeft = clamp(state.treeLeft ?? 0, view.treeLeftMax)
     // The wheel moves the window off the selection, so it only clamps here.
     const win = windowOf(rows, -1, treeRows, state.offset)
-    const current = index < 0 ? undefined : rows[index]
+    // A selection a collapse has hidden (Collapse All, its dir closed) keeps
+    // its preview: its row comes from its parent's listing.
+    const hiddenRow = async (path: string | undefined): Promise<Row | undefined> => {
+      if (path === undefined || !path.startsWith(root + '/')) return undefined
+      const parent = parentOf(path)
+      await ensureListed($, parent)
+      const entry = (listings.get(parent) ?? []).find(found => join(parent, found.name) === path)
+
+      return entry === undefined ? undefined : { path, name: entry.name, depth: 0, kind: entry.kind, isExpanded: false }
+    }
+    const current = index < 0 ? await hiddenRow(state.selected) : rows[index]
     const isUnity = state.mode === 'unity' && !isNotUnity
     const preview: Preview | undefined =
       edit !== undefined
@@ -2319,16 +2403,37 @@ export const register = (on: On, options?: PluginOptions): void => {
         : win.rows.some(row => row.path === home)
           ? home
           : undefined
-    const previewRows = Math.max(1, innerRows - refLines)
-    const treeCols = splitAt(e.props.bodyColumns, state.split?.tree ?? 0.35, MIN_COLS)
+    // The rows Code and refs share, before a horizontal bar takes one.
+    const previewRoom = Math.max(1, innerRows - refLines)
     const previewInner = Math.max(1, e.props.bodyColumns - treeCols - 2)
     // Rendered markdown: rows at Preview's inner columns less the vertical
     // bar, one Preview row each, so the total drives `sb:preview`, the wheel
     // and page keys as code lines do; they wrap, so no `hb:preview`.
     const md =
       preview?.type === 'markdown'
-        ? await markdownView($, preview, Math.max(MIN_WIDTH, previewInner - 1), previewRows, surface, root)
+        ? await markdownView($, preview, Math.max(MIN_WIDTH, previewInner - BAR), previewRoom, surface, root)
         : undefined
+    // Horizontal scroll: lines are cut at column `previewLeft` (Code and Text
+    // have no column offset). The room is Preview's inner columns less the
+    // vertical bar and, for Code, its line-number gutter: one space, the
+    // widest shown number, one space (probed live on 2.1.289: ` 9 `, `  99 `
+    // for 99-100). `total` measures every line, so a vertical scroll keeps the
+    // thumb's size. Measured before the rows: the bar takes the last one.
+    const previewLines = preview === undefined || preview.type === 'image' || preview.type === 'markdown' ? [] : preview.lines
+    const previewWide =
+      preview?.type === 'code'
+        ? widestCached(preview.path + '\0' + preview.mtime + '\0' + preview.lines.length, preview.lines)
+        : widest(previewLines)
+    const gutterAt = (rows: number): number => {
+      if (preview?.type !== 'code') return 0
+      const total = preview.lines.length
+      const first = clamp(state.previewOffset ?? 0, total - rows)
+
+      return String(Math.max(1, Math.min(total, first + rows))).length + 2
+    }
+    const isPreviewWide =
+      md === undefined && preview?.type !== 'image' && previewWide > Math.max(1, previewInner - BAR - gutterAt(previewRoom))
+    const previewRows = Math.max(1, previewRoom - (isPreviewWide ? 1 : 0))
     const previewTotal = md !== undefined ? md.rows.length : preview?.type === 'code' ? preview.lines.length : 0
     const previewOffset = clamp(state.previewOffset ?? 0, previewTotal - previewRows)
     view.columns = e.props.bodyColumns
@@ -2336,24 +2441,15 @@ export const register = (on: On, options?: PluginOptions): void => {
     view.treeMax = Math.max(0, rows.length - treeRows)
     view.previewMax = Math.max(0, previewTotal - previewRows)
     view.previewRows = previewRows
-    // Horizontal scroll: lines are cut at column `previewLeft` (Code and Text
-    // have no column offset). The room is Preview's inner columns less the
-    // vertical bar and, for Code, its line-number gutter: one space, the
-    // widest shown number, one space (probed live on 2.1.289: ` 9 `, `  99 `
-    // for 99-100). `total` measures every line, so a vertical scroll keeps the
-    // thumb's size.
-    const previewLines = preview === undefined || preview.type === 'image' || preview.type === 'markdown' ? [] : preview.lines
-    const shownLast = preview?.type === 'code' ? Math.min(previewTotal, previewOffset + previewRows) : 0
-    const gutter = preview?.type === 'code' ? String(Math.max(1, shownLast)).length + 2 : 0
-    const previewWide =
-      preview?.type === 'code'
-        ? widestCached(preview.path + '\0' + preview.mtime + '\0' + preview.lines.length, preview.lines)
-        : widest(previewLines)
-    const previewVisible = Math.max(1, previewInner - 1 - gutter)
+    const previewVisible = Math.max(1, previewInner - BAR - gutterAt(previewRows))
     view.previewLeftMax = Math.max(0, previewWide - previewVisible)
     const previewLeft = clamp(state.previewLeft ?? 0, view.previewLeftMax)
-    view.editRows = innerRows
     view.editColumns = Math.max(1, e.props.bodyColumns - view.treeEnd - 2)
+    // The editor's horizontal bar, as the client last reported its view: it
+    // takes the section's last inner row from the editor.
+    const editHview = edit !== undefined && editing.version === edit.version ? editing.hview : undefined
+    const isEditWide = editHview !== undefined && editTotal(editHview) > editHview.width
+    view.editRows = Math.max(1, innerRows - (isEditWide ? 1 : 0))
     view.isEditDrawn = edit !== undefined
     // An image: the picture fitted to Preview's inner room less its info row
     // (no scrollbars). The terminal draws the PNG file (`Image`) unless the
@@ -2558,7 +2654,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         </Box>
       )
     const bar = (cells: string[]) => (
-      <Box flexDirection="column" width={1} flexShrink={0}>
+      <Box flexDirection="column" width={BAR} flexShrink={0}>
         {cells.map((cell, i) => (
           <Text key={'bar:' + i} color={cell === THUMB ? t.accent : t.muted}>
             {cell}
@@ -2576,28 +2672,34 @@ export const register = (on: On, options?: PluginOptions): void => {
           key={key}
           module="../shared/scrollbar-client.tsx"
           props={{ total, visible: rows, offset, height: rows, color: t.accent }}
-          width={1}
+          width={BAR}
           height={rows}
         />
       )
 
-    // A horizontal scrollbar laid over the section's bottom border (no row of
-    // its own), only while the content is wider than the room. Like the title,
-    // it sits after the bordered Box in the unbordered wrapper; `left={1}`
-    // skips the corner and `width` stops short of the far one. Draggable on
-    // surfaces that draw a `Client`, a static Text row elsewhere. The engine's
-    // wheel has no horizontal axis, so dragging is the only way to scroll.
-    const hbar = (key: string, total: number, visible: number, offset: number, width: number) => {
+    // A horizontal scrollbar BAR rows tall, only while the content is wider
+    // than the room: the section's last inner row (the content gives it up)
+    // over its bottom border, from `top` (the frame's height less BAR). Like
+    // the title, it sits after the bordered Box in the unbordered wrapper;
+    // `left={1}` skips the corner and `width` stops short of the far one.
+    // Draggable on surfaces that draw a `Client`, static Text rows elsewhere.
+    // The engine's wheel has no horizontal axis, so dragging is the only way
+    // to scroll.
+    const hbar = (key: string, total: number, visible: number, offset: number, width: number, top = sectionRows - BAR) => {
       if (total <= visible || width <= 0) return null
 
       return (
-        <Box position="absolute" top={sectionRows - 1} left={1}>
+        <Box position="absolute" top={top} left={1}>
           {Client === undefined ? (
-            <Box flexDirection="row" height={1}>
-              {scrollbar(total, visible, offset, width, { thumb: H_THUMB, track: H_TRACK }).map((cell, i) => (
-                <Text key={'hbar:' + i} color={cell === H_THUMB ? t.accent : t.muted}>
-                  {cell}
-                </Text>
+            <Box flexDirection="column" height={BAR}>
+              {[H_INNER, H_EDGE].map((glyphs, row) => (
+                <Box key={'hbar:' + row} flexDirection="row" height={1}>
+                  {barRuns(scrollbar(total, visible, offset, width, glyphs), glyphs.thumb).map((part, i) => (
+                    <Text key={'hbar:' + row + ':' + i} color={part.isThumb ? t.accent : t.muted}>
+                      {part.text}
+                    </Text>
+                  ))}
+                </Box>
               ))}
             </Box>
           ) : (
@@ -2606,7 +2708,7 @@ export const register = (on: On, options?: PluginOptions): void => {
               module="../shared/scrollbar-client.tsx"
               props={{ axis: 'x', total, visible, offset, height: width, color: t.accent }}
               width={width}
-              height={1}
+              height={BAR}
             />
           )}
         </Box>
@@ -2774,6 +2876,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             : undefined}
         <Box flexDirection="row">
           <Box flexDirection="column" width={treeCols} flexShrink={0} height={sectionRows}>
+          <Box flexDirection="column" height={treeFrameRows} flexShrink={0}>
           <Box {...border} flexDirection="row" height="100%">
             <Box flexDirection="column" flexGrow={1}>
             {rows.length === 0 && <Text color={t.muted}>(empty)</Text>}
@@ -2787,18 +2890,19 @@ export const register = (on: On, options?: PluginOptions): void => {
               const isSelected = row.path === state.selected
               const isIgnored = ignored.has(row.path)
               // `+` added, `*` edited (a dir: something under it), after the name.
-              const change = footer.branch === undefined ? undefined : markOf(row.path, footer.marks)
+              const change = changeAt(row)
               const changeColor = change === '+' ? t.success : t.warning
               // The kind's icon and a space before the name (Settings `fileIcons`).
               const icon = iconOf(row.name, row.kind, row.isExpanded, icons)
               const iconColor = icon === undefined || isIgnored ? t.muted : t[icon.role]
-              // The row's room: frame (2) and vertical bar (1).
-              const room = treeCols - 2 - 1
+              // The row's room: frame (2) and vertical bar.
+              const room = treeCols - 2 - BAR
               const label = (cells: number) =>
                 // the name's room past the bar, rails, arrow, icon and change
-                // mark; no horizontal scroll in list sections, so a long name is cut
+                // mark; without row clients there is no horizontal bar, so a
+                // long name is cut
                 fitLabel(
-                  row.kind === 'dir' ? row.name + '/' : row.name,
+                  labelOf(row),
                   Math.max(3, cells - 1 - 2 * row.depth - 2 - (icon === undefined ? 0 : 2) - (change === undefined ? 0 : 2)),
                 )
               const arrow = row.kind === 'dir' ? (row.isExpanded ? '▾ ' : '▸ ') : '  '
@@ -2817,7 +2921,8 @@ export const register = (on: On, options?: PluginOptions): void => {
                         // it is when it has left the selection
                         isCursor: state.cursor === row.path && state.cursor !== state.selected,
                         isIgnored,
-                        label: label(room - 1),
+                        label: labelOf(row),
+                        left: treeLeft,
                         ...(icon === undefined ? {} : { icon: { glyph: icon.glyph, color: iconColor } }),
                         ...(change === undefined ? {} : { change }),
                         colors: { accent: t.accent, border: t.border, muted: t.muted, selection: sel, change: changeColor },
@@ -2866,6 +2971,14 @@ export const register = (on: On, options?: PluginOptions): void => {
             {dragBar('sb:tree', rows.length, treeRows, win.offset)}
           </Box>
           {titled('title:files', 'Files')}
+          {hbar('hb:tree', treeWide, treeVisible, treeLeft, treeCols - 2 - BAR, treeFrameRows - BAR)}
+          </Box>
+          {/* Under Files' frame: every dir closed, or every dir opened; cut
+              at the right end on a narrow Files. */}
+          <Box key="tree:actions" flexDirection="row" gap={4} height={1} overflow="hidden">
+            <Box flexShrink={0}>{btn('collapse-all', 'Collapse All', 'secondary', () => void collapseAll($))}</Box>
+            <Box flexShrink={0}>{btn('expand-all', 'Expand All', 'secondary', () => void expandAll($))}</Box>
+          </Box>
           </Box>
           {edit !== undefined && Client !== undefined ? (
             <Box flexDirection="column" flexGrow={1} height={sectionRows}>
@@ -2874,15 +2987,13 @@ export const register = (on: On, options?: PluginOptions): void => {
                 key="editor"
                 module="./editor-client.tsx"
                 props={editorProps(edit, t)}
-                height={innerRows}
+                height={view.editRows}
                 flexGrow={1}
               />
             </Box>
             {/* The client holds the first column; it reports the view. No
                 vertical bar here, so the bar spans all the inner columns. */}
-            {editing.hview !== undefined &&
-              editing.version === edit.version &&
-              hbar('hb:edit', editTotal(editing.hview), editing.hview.width, editing.hview.left, view.editColumns)}
+            {editHview !== undefined && hbar('hb:edit', editTotal(editHview), editHview.width, editHview.left, view.editColumns)}
             {titled('title:edit', 'Edit', isEditDirty(edit) ? '●' : undefined)}
             {/* Line actions for terminals that do not report their chords. */}
             <Box position="absolute" top={0} right={1} flexDirection="row" gap={1}>
@@ -3014,11 +3125,12 @@ export const register = (on: On, options?: PluginOptions): void => {
                 />
               </Box>
             ))}
-          {image === undefined && md === undefined && hbar('hb:preview', previewWide, previewVisible, previewLeft, previewInner - 1)}
-          {/* A rendered engine's source view and back. */}
-          {hasView && (
-            <Box position="absolute" top={0} right={1} flexDirection="row">
-              {edgeButton(
+          {image === undefined && md === undefined && hbar('hb:preview', previewWide, previewVisible, previewLeft, previewInner - BAR)}
+          {/* A rendered engine's source view and back, then Clear Preview
+              in the top right corner. */}
+          {(hasView || preview !== undefined) && (
+            <Box position="absolute" top={0} right={1} flexDirection="row" gap={1}>
+              {hasView && edgeButton(
                 'preview:view',
                 isRaw ? 'Rendered' : 'Source',
                 false,
@@ -3026,11 +3138,13 @@ export const register = (on: On, options?: PluginOptions): void => {
                   void update($, explorer, s => ({ ...s, previewRaw: s.previewRaw === true ? undefined : true, previewOffset: 0, previewLeft: 0 })),
                 ),
               )}
+              {preview !== undefined && edgeButton('preview:clear', 'Clear Preview', false, asleep(() => void clearPreview($)))}
             </Box>
           )}
           </Box>
           )}
-          {splitter('split:tree', 'x', treeCols - 1, 1, sectionRows - 2, treeCols)}
+          {/* Down to Files' bottom corner: its frame ends a row above Preview's. */}
+          {splitter('split:tree', 'x', treeCols - 1, 1, treeFrameRows - 2, treeCols)}
         </Box>
         {!isSplit && sheetTree}
       </Box>

@@ -831,8 +831,8 @@ test('focus moving past the window edge scrolls the tree', async ($, on) => {
     plugin: PLUGIN,
     surface: 'terminal',
     component: 'Pane',
-    // 1 header row, then Files' frame around 4 rows
-    props: { ...PROPS, scroll: { offset: 0, bodyRows: 7 } },
+    // 1 header row, then Files' frame around 4 rows, then its action row
+    props: { ...PROPS, scroll: { offset: 0, bodyRows: 8 } },
     requestId: 'ide-explorer',
     viewport: VIEWPORT,
   })
@@ -1071,10 +1071,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
         .map(b => b.key ?? '')
         .filter(key => key.startsWith('row:'))
     const bars = async () =>
-      (await ui.findAll({ type: 'Text', text: /^[┃│ ]$/, in: 'sb:preview' })).map(t => t.text).join('')
+      (await ui.findAll({ type: 'Text', text: /^(▐▌|▕▏| {2})$/, in: 'sb:preview' })).map(t => t.text).join('')
     await ui.press({ key: 'row:/many/g00.txt' })
     expect(await keys()).toContain('row:/many/g00.txt')
-    expect(await bars()).toContain('┃')
+    expect(await bars()).toContain('▐▌')
 
     // wheel over the tree: the window moves, the selection stays
     await scroll($, 'ide-explorer', 5, { column: 5, row: 3 })
@@ -1138,14 +1138,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.resize({ columns: 1, rows: 9, in: 'sb:tree' })
 
     // preview: the thumb starts on top; drag it down, release at the bottom
-    expect((await thumbs('sb:preview')).startsWith('┃')).toBe(true)
+    expect((await thumbs('sb:preview')).startsWith('▐▌')).toBe(true)
     await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'sb:preview' })
     expect((await code())?.props.startLine).toBe(1)
     await ui.pointer({ type: 'move', x: 0, y: 4, button: 'left', in: 'sb:preview' })
     expect((await code())?.props.startLine).toBe(27)
     await ui.pointer({ type: 'up', x: 0, y: 8, button: 'left', in: 'sb:preview' })
     expect((await code())?.props.startLine).toBe(52)
-    expect((await thumbs('sb:preview')).endsWith('┃')).toBe(true)
+    expect((await thumbs('sb:preview')).endsWith('▐▌')).toBe(true)
 
     // a click on the track centres the thumb there
     await ui.pointer({ type: 'down', x: 0, y: 0, button: 'left', in: 'sb:preview' })
@@ -1237,24 +1237,33 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.pointer({ type: 'up', button: 'left', x: 0, y: 3, in: 'split:tree' })
   })
 
-  test(`${surface}: a narrow Files cuts long tree labels with … so each row stays one line`, async ($, on) => {
+  test(`${surface}: a narrow Files keeps whole labels; its horizontal bar scrolls the rows sideways`, async ($, on) => {
     const ui = await mountMany($, on)
     await ui.pointer({ type: 'down', button: 'left', x: 0, y: 3, in: 'split:tree' })
     await ui.pointer({ type: 'move', button: 'left', x: -100, y: 3, in: 'split:tree' })
     await ui.pointer({ type: 'up', button: 'left', x: -100, y: 3, in: 'split:tree' })
     expect(await cellsOf(ui)).toBe(12)
-    const items = (await ui.findAll({ type: 'Client' })).filter(c => (c.key ?? '').startsWith('item:'))
-    const labels = items.map(c => String((c.props.props as { label?: string }).label))
-    expect(labels.length > 0).toBe(true)
-    // 12 columns: frame 2, vertical bar 1 and the keyboard cell 1 leave the
-    // row Client 8: mark 1, file glyph 2, so 5 for 'h00.txt'
-    for (const item of items) expect(item.props.width).toBe(8)
-    for (const label of labels) {
-      expect(label.length).toBe(5)
-      expect(label.endsWith('…')).toBe(true)
-      expect(label.includes('\n')).toBe(false)
-    }
-    expect(labels[0]).toBe('h00.…')
+    const items = async () => (await ui.findAll({ type: 'Client' })).filter(c => (c.key ?? '').startsWith('item:'))
+    const propsOf = (item: { props: Record<string, unknown> }) => item.props.props as { label?: string; left?: number }
+    const first = (await items())[0]!
+    expect(first.key).toBe('item:/many2/h00.txt')
+    // 12 columns: frame 2, vertical bar 2 and the keyboard cell 1 leave the
+    // row Client 7: the selection bar 1, then 6 of the row
+    for (const item of await items()) expect(item.props.width).toBe(7)
+    expect(propsOf(first)).toMatchObject({ label: 'h00.txt', left: 0 })
+    // the widest row (arrow slot 2, 'h00.txt' 7) passes those 6 columns
+    const bar = await ui.find({ key: 'hb:tree' })
+    const hb = bar?.props.props as { total: number; visible: number; height: number }
+    expect(hb).toMatchObject({ axis: 'x', total: 9, visible: 6, height: 8 })
+    // dragged to the end: every row scrolls by total - visible
+    await ui.resize({ columns: hb.height, rows: 2, in: 'hb:tree' })
+    await ui.pointer({ type: 'down', button: 'left', x: 0, y: 0, in: 'hb:tree' })
+    await ui.pointer({ type: 'up', button: 'left', x: hb.height, y: 0, in: 'hb:tree' })
+    for (const item of await items()) expect(propsOf(item).left).toBe(3)
+    // the row client draws from there: the selection bar, then '00.txt'
+    await ui.resize({ columns: 7, rows: 1, in: 'item:/many2/h00.txt' })
+    const drawn = (await ui.findAll({ type: 'Text', in: 'item:/many2/h00.txt' })).map(t => t.text).join('')
+    expect(drawn).toBe(' 00.txt')
   })
 
   test(`${surface}: a Files seam drag writes layout:explorer on release only`, async ($, on) => {
@@ -1758,7 +1767,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'hb:preview' })).toBeDefined()
     expect((await source()).startsWith(long)).toBe(true)
     const bar = async () => (await ui.findAll({ type: 'Text', in: 'hb:preview' })).map(t => t.text).join('')
-    expect((await bar()).startsWith('━')).toBe(true)
+    // the inner row's thumb over the border's
+    expect((await bar()).startsWith('▄')).toBe(true)
 
     // a drag moves the first column shown; the line numbers stay
     const props = (await ui.find({ key: 'hb:preview' }))?.props.props as {
@@ -1780,7 +1790,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await startLine()).toBe(1)
     await ui.pointer({ type: 'up', x: free, y: 0, button: 'left', in: 'hb:preview' })
     expect((await source()).split('\n')[0]).toBe(long.slice(span))
-    expect((await bar()).endsWith('━')).toBe(true)
+    expect((await bar()).endsWith('▀')).toBe(true)
     expect(await startLine()).toBe(1)
 
     // another file, then back: the slice starts at column 0 again
@@ -2615,8 +2625,8 @@ const README = [
   filler('more'),
   '',
 ].join('\n')
-// Preview's rendered width at PROPS: 75 inner columns less the vertical bar.
-const MD_WIDTH = 74
+// Preview's rendered width at PROPS: 75 inner columns less the vertical bar's 2.
+const MD_WIDTH = 73
 const MD_ROWS = 17 // Preview's rows at bodyRows 20
 const readmeRows = () => layout(parse(README), MD_WIDTH)
 
@@ -3292,5 +3302,72 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await iconOfRow('/proj/src')).toBeUndefined()
     await ui.press({ key: 'settings:icons:basic' })
     expect((await iconOfRow('/proj/src'))?.glyph).toBe('■')
+  })
+}
+
+// ------------------------------------------------------------ Files actions
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  // A root with nested dirs, `.git` and an ignored dir (the fake ignores
+  // every `out.log`).
+  const deep = async ($: Engine, on: On) => {
+    mock.store(on)
+    fake(on, [], [], [], () => '/deep')
+    on('ui.focus', () => ({}))
+    TREE['/deep'] = [entry('a', 'dir'), entry('.git', 'dir'), entry('out.log', 'dir'), entry('top.txt', 'file')]
+    TREE['/deep/a'] = [entry('b', 'dir'), entry('a.txt', 'file')]
+    TREE['/deep/a/b'] = [entry('b.txt', 'file')]
+    TREE['/deep/.git'] = [entry('HEAD', 'file')]
+    TREE['/deep/out.log'] = [entry('x', 'dir')]
+    FILES['/deep/a/b/b.txt'] = 'deep text\n'
+    await $.session.start({ cwd: '/deep', surface, isInteractive: true })
+
+    return $.ui.mount({
+      plugin: PLUGIN,
+      surface,
+      component: 'Pane',
+      props: PROPS,
+      requestId: 'ide-explorer',
+      viewport: VIEWPORT,
+    })
+  }
+  const rowKeys = async (ui: Awaited<ReturnType<typeof deep>>) =>
+    (await ui.findAll({ type: 'Button' })).map(b => b.key ?? '').filter(key => key.startsWith('row:'))
+
+  test(`${surface}: Expand All opens every dir but .git and ignored ones; Collapse All closes them, the preview stays`, async ($, on) => {
+    const ui = await deep($, on)
+    // under Files' frame, 4 cells apart
+    expect((await ui.find({ key: 'tree:actions' }))?.props.gap).toBe(4)
+    expect(await rowKeys(ui)).not.toContain('row:/deep/a/a.txt')
+    await ui.press({ key: 'expand-all' })
+    const open = await rowKeys(ui)
+    expect(open).toContain('row:/deep/a/b/b.txt')
+    expect(open).toContain('row:/deep/a/a.txt')
+    expect(open).toContain('row:/deep/out.log')
+    expect(open).not.toContain('row:/deep/out.log/x')
+    expect(((await ui.find({ key: 'item:/deep/out.log' }))?.props.props as { isExpanded?: boolean }).isExpanded).toBe(false)
+
+    await ui.press({ key: 'row:/deep/a/b/b.txt' })
+    expect((await ui.find({ type: 'Code' }))?.text).toContain('deep text')
+    await ui.press({ key: 'collapse-all' })
+    expect(await rowKeys(ui)).toEqual(['row:/deep/a', 'row:/deep/out.log', 'row:/deep/top.txt'])
+    // the selection is hidden, not dropped: Preview still shows it
+    expect((await ui.find({ type: 'Code' }))?.text).toContain('deep text')
+  })
+
+  test(`${surface}: Clear Preview empties Preview; the cursor stays`, async ($, on) => {
+    const ui = await deep($, on)
+    expect(await ui.find({ key: 'preview:clear' })).toBeUndefined()
+    await ui.press({ key: 'row:/deep/top.txt' })
+    const clear = await ui.find({ key: 'preview:clear' })
+    expect(clear?.props.label).toBe(' Clear Preview ')
+    expect(await ui.find({ key: 'copy-name' })).toBeDefined()
+    await ui.press({ key: 'preview:clear' })
+    expect(await ui.find({ type: 'Code' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Select a file.' })).toBeDefined()
+    expect(await ui.find({ key: 'preview:clear' })).toBeUndefined()
+    // nothing selected: no row actions
+    expect(await ui.find({ key: 'copy-name' })).toBeUndefined()
+    expect(((await ui.find({ key: 'item:/deep/top.txt' }))?.props.props as { isSelected?: boolean }).isSelected).toBe(false)
   })
 }

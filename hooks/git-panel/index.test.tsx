@@ -141,7 +141,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         viewport: VIEWPORT,
       })
 
-    test(`${surface}/${columns}: one header line: title, panel tabs, then actions`, async ($, on) => {
+    test(`${surface}/${columns}: one header line: title and panel tabs, the actions at the right`, async ($, on) => {
       mock.store(on)
       fake(on, [])
       await $.session.start(start(surface))
@@ -149,10 +149,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
       const boxes = await ui.findAll({ type: 'Box' })
       const lines = boxes.map(box => box.key ?? '').filter(key => key.startsWith('header:'))
-      expect(lines).toEqual(['header:tabs'])
+      expect(lines).toEqual(['header:tabs', 'header:actions'])
       const header = boxes.find(box => box.key === 'header')
       expect(header?.props.height).toBe(1)
       expect(boxes.find(box => box.key === 'header:tabs')?.props.gap).toBe(2)
+      // the actions keep their room in the right corner, 2 cells apart; the
+      // tabs grow to push them there
+      expect(boxes.find(box => box.key === 'header:actions')?.props).toMatchObject({ gap: 2, flexShrink: 0 })
+      expect(boxes.find(box => box.key === 'header:tabs')?.props.flexGrow).toBe(1)
       // the title, the tabs and the actions share the row, in that order
       const row = (await ui.findAll({ type: 'Button' }))
         .map(b => b.key ?? '')
@@ -656,7 +660,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
         ...(pointer === undefined ? {} : { pointer }),
       } as never)
     const first = (await commits())[0]
-    expect(await ui.find({ type: 'Text', text: '┃', in: 'sb:graph' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '▐▌', in: 'sb:graph' })).toBeDefined()
 
     // wide layout: columns 32-95 are the graph
     await scroll(6, { column: 60, row: 3 })
@@ -1390,9 +1394,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'commit:' + HEAD_SHA })
     const overview = (await barOf(ui, 'hb:info'))?.visible ?? 0
     await ui.press({ key: 'tab:graph' })
-    // 100 columns past the frame and the vertical bar
-    expect((await barOf(ui, 'hb:info'))?.visible).toBe(97)
-    expect(overview).toBeLessThan(97)
+    // 100 columns past the frame and the vertical bar's 2
+    expect((await barOf(ui, 'hb:info'))?.visible).toBe(96)
+    expect(overview).toBeLessThan(96)
     await drag(ui, 'hb:info', 20)
     expect((await barOf(ui, 'hb:info'))?.offset).toBeGreaterThan(0)
     expect(await texts(ui)).not.toContain(WIDE_LINE)
@@ -1636,6 +1640,45 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.post({ hit: 'name' }, { in: 'bitem:r:origin' })
     expect(await rowOf(ui, 'r:origin')).toMatchObject({ isOpen: true })
     expect(await rowOf(ui, 'b:origin/main')).toMatchObject({ isSelected: true })
+  })
+
+  test(`${surface}: Collapse All closes every Branches folder and category; Expand All opens them`, async ($, on) => {
+    const ui = await open($, on)
+    // under Branches' frame, 4 cells apart
+    expect((await ui.find({ key: 'branches:actions' }))?.props.gap).toBe(4)
+    await ui.press({ key: 'collapse-all' })
+    expect(await rowOf(ui, 'l:')).toMatchObject({ isOpen: false })
+    expect(await rowOf(ui, 'r:')).toMatchObject({ isOpen: false })
+    expect(await ui.find({ key: 'bitem:r:origin' })).toBeUndefined()
+    expect(await ui.find({ key: 'bitem:b:develop' })).toBeUndefined()
+    await ui.press({ key: 'expand-all' })
+    expect(await rowOf(ui, 'l:')).toMatchObject({ isOpen: true })
+    expect(await rowOf(ui, 'r:origin')).toMatchObject({ isOpen: true })
+    expect(await ui.find({ key: 'bitem:b:origin/main' })).toBeDefined()
+    expect(await ui.find({ key: 'bitem:b:fix/delivery-readiness' })).toBeDefined()
+  })
+
+  test(`${surface}: a narrow Branches keeps whole labels; its horizontal bar scrolls the rows sideways`, async ($, on) => {
+    const ui = await open($, on)
+    await ui.pointer({ type: 'down', button: 'left', x: 0, y: 5, in: 'split:side' })
+    await ui.pointer({ type: 'move', button: 'left', x: -100, y: 5, in: 'split:side' })
+    await ui.pointer({ type: 'up', button: 'left', x: -100, y: 5, in: 'split:side' })
+    expect(await rowOf(ui, 'l:')).toMatchObject({ label: 'Local (2)', left: 0 })
+    // 12 columns: frame 2, vertical bar 2, the keyboard cell 1 and the
+    // selection mark 1 leave 6
+    const bar = await ui.find({ key: 'hb:branches' })
+    const hb = bar?.props.props as { total: number; visible: number; height: number }
+    expect(hb).toMatchObject({ axis: 'x', visible: 6, height: 8 })
+    expect(hb.total).toBeGreaterThan(hb.visible)
+    await ui.resize({ columns: hb.height, rows: 2, in: 'hb:branches' })
+    await ui.pointer({ type: 'down', button: 'left', x: 0, y: 0, in: 'hb:branches' })
+    await ui.pointer({ type: 'up', button: 'left', x: hb.height, y: 0, in: 'hb:branches' })
+    expect(await rowOf(ui, 'l:')).toMatchObject({ left: hb.total - hb.visible })
+    // a click keeps hitting the arrow where it is drawn: scrolled off, the
+    // category row's arrow (x 1-2) is past the left edge, so x 1 is its name
+    await ui.pointer({ type: 'down', x: 1, y: 0, button: 'left', in: 'bitem:l:' })
+    await ui.pointer({ type: 'up', x: 1, y: 0, button: 'left', in: 'bitem:l:' })
+    expect(await rowOf(ui, 'l:')).toMatchObject({ isOpen: true })
   })
 
   test(`${surface}: a double-click copies the full ref, a folder's prefix, nothing on a category`, async ($, on) => {

@@ -1,13 +1,15 @@
 import type { ClientModule, ClientSurface } from 'claude-code'
 
+import { sliceRuns } from '../shared/hscroll'
 import { isOnRow, rowGesture } from '../shared/row-gesture'
 import { rowHit } from './tree'
 import type { ChangeMark, Entry, RowHit } from './tree'
 
 // One tree row as the Files section draws it: the selection bar, a rail per
-// depth level, the dir arrow, the kind's icon when icons are on, the name
-// (already cut to the room), then its change mark (`+` added, `*` edited)
-// when it has one. The
+// depth level, the dir arrow, the kind's icon when icons are on, the name,
+// then its change mark (`+` added, `*` edited) when it has one. Everything
+// past the selection bar is scrolled sideways by `left` columns (Files'
+// horizontal bar) and cut to the region's width. The
 // keyboard ring sits on the blank Button after the region, so `isCursor`
 // underlines the name to show where it is.
 //
@@ -24,6 +26,7 @@ type Props = {
   label: string
   icon?: { glyph: string; color: string } // one cell, a space after it
   change?: ChangeMark
+  left?: number // columns scrolled off past the selection bar
   colors: { accent: string; border: string; muted: string; selection: string; change: string }
 }
 
@@ -47,19 +50,35 @@ const RowClient: ClientModule<Props, State> = (props, surface) => {
   }
   const { colors } = props
   const isLit = props.isSelected
+  type Run = { text: string; color?: string; isDim?: boolean; isLabel?: boolean }
+  const runs: Run[] = [
+    ...(props.depth > 0 ? [{ text: '│ '.repeat(props.depth), color: colors.border }] : []),
+    {
+      text: props.kind === 'dir' ? (props.isExpanded ? '▾ ' : '▸ ') : '  ',
+      color: props.isIgnored ? colors.muted : colors.accent,
+    },
+    ...(props.icon !== undefined ? [{ text: props.icon.glyph + ' ', color: props.icon.color }] : []),
+    { text: props.label, isDim: props.isIgnored, isLabel: true },
+    ...(props.change !== undefined ? [{ text: ' ' + props.change, color: colors.change }] : []),
+  ]
+  // the room past the selection bar, once laid out
+  const room = surface.columns > 0 ? surface.columns - 1 : Infinity
+  const shown = props.left === undefined && room === Infinity ? runs : sliceRuns(runs, props.left ?? 0, room)
 
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isLit ? colors.selection : undefined}>
       <Text color={colors.accent}>{isLit ? '▌' : ' '}</Text>
-      {props.depth > 0 && <Text color={colors.border}>{'│ '.repeat(props.depth)}</Text>}
-      <Text color={props.isIgnored ? colors.muted : colors.accent}>
-        {props.kind === 'dir' ? (props.isExpanded ? '▾ ' : '▸ ') : '  '}
-      </Text>
-      {props.icon !== undefined && <Text color={props.icon.color}>{props.icon.glyph + ' '}</Text>}
-      <Text dimColor={props.isIgnored} underline={props.isCursor} wrap="truncate-end">
-        {props.label}
-      </Text>
-      {props.change !== undefined && <Text color={colors.change}>{' ' + props.change}</Text>}
+      {shown.map((run, i) =>
+        run.isLabel === true ? (
+          <Text key={'run:' + i} dimColor={run.isDim} underline={props.isCursor} wrap="truncate-end">
+            {run.text}
+          </Text>
+        ) : (
+          <Text key={'run:' + i} color={run.color}>
+            {run.text}
+          </Text>
+        ),
+      )}
     </Box>
   )
 }
@@ -67,7 +86,8 @@ const RowClient: ClientModule<Props, State> = (props, surface) => {
 const hitAt = (surface: ClientSurface<State>, cells: Cells, x: number, y: number): RowHit | undefined => {
   if (!isOnRow(surface.columns, x, y)) return undefined
 
-  return rowHit(cells.props.depth, cells.props.kind, x)
+  // the selection bar stays; the rest is scrolled by `left`
+  return rowHit(cells.props.depth, cells.props.kind, x === 0 ? 0 : x + (cells.props.left ?? 0))
 }
 
 export default RowClient

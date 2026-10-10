@@ -1,10 +1,11 @@
 import type { ClientModule, ClientPointerEvent, ClientSurface } from 'claude-code'
 
-import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from './scrollbar'
+import { BAR, H_EDGE, H_INNER, THUMB, barRuns, clamp, scrollbar } from './scrollbar'
 
-// `axis` 'y' (the default) draws one column of `height` rows; 'x' draws one
-// row, `height` then read as the bar's length in columns. The laid-out size
-// (`surface.rows` / `surface.columns`) wins over `height` once known.
+// `axis` 'y' (the default) draws BAR columns of `height` rows; 'x' draws BAR
+// rows (the section's last inner row over its bottom border), `height` then
+// read as the bar's length in columns. The laid-out size (`surface.rows` /
+// `surface.columns`) wins over `height` once known.
 type Props = {
   total: number
   visible: number
@@ -57,29 +58,36 @@ const ScrollBar: ClientModule<Props, State> = (props, surface) => {
   const held = surface.state?.cells.held
   const offset = held ?? props.offset
 
-  const isX = props.axis === 'x'
-  const thumb = isX ? H_THUMB : THUMB
-  const bar = scrollbar(props.total, props.visible, offset, length, isX ? { thumb: H_THUMB, track: H_TRACK } : undefined)
-  // Two Texts, not one with `dimColor={undefined}`: the engine refuses some props set to undefined.
-  const cells = bar.map((cell, i) =>
-    cell === thumb ? (
-      <Text key={'bar:' + i} color={props.color}>
-        {cell}
-      </Text>
-    ) : (
-      <Text key={'bar:' + i} dimColor>
-        {cell}
-      </Text>
-    ),
-  )
+  // Runs of thumb or track cells; two Texts, not one with
+  // `dimColor={undefined}`: the engine refuses some props set to undefined.
+  const runs = (cells: string[], thumb: string, key: string) =>
+    barRuns(cells, thumb).map((run, i) =>
+      run.isThumb ? (
+        <Text key={key + i} color={props.color}>
+          {run.text}
+        </Text>
+      ) : (
+        <Text key={key + i} dimColor>
+          {run.text}
+        </Text>
+      ),
+    )
 
-  return isX ? (
-    <Box flexDirection="row" height={1} flexShrink={0}>
-      {cells}
-    </Box>
-  ) : (
-    <Box flexDirection="column" width={1} flexShrink={0}>
-      {cells}
+  if (props.axis === 'x') {
+    return (
+      <Box flexDirection="column" height={BAR} flexShrink={0}>
+        {[H_INNER, H_EDGE].map((glyphs, row) => (
+          <Box key={'bar:' + row} flexDirection="row" height={1}>
+            {runs(scrollbar(props.total, props.visible, offset, length, glyphs), glyphs.thumb, 'bar:' + row + ':')}
+          </Box>
+        ))}
+      </Box>
+    )
+  }
+
+  return (
+    <Box flexDirection="column" width={BAR} flexShrink={0}>
+      {scrollbar(props.total, props.visible, offset, length).map((cell, i) => runs([cell], THUMB, 'bar:' + i + ':'))}
     </Box>
   )
 }

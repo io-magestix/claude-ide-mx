@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { expandTabs, sliceCols, sliceDiffCols, widest, widthOf } from './hscroll'
+import { expandTabs, sliceCols, sliceDiffCols, sliceRuns, widest, widthOf } from './hscroll'
 
 test('sliceCols: ASCII drops the first left columns', () => {
   expect(sliceCols('abcdef', 2)).toBe('cdef')
@@ -117,4 +117,16 @@ test('sliceDiffCols: left 0 keeps the diff, tabs expanded after the marker', () 
 
 test('sliceDiffCols: past every line leaves only the markers', () => {
   expect(sliceDiffCols('@@ -1 +1 @@\n-abc\n+de', 99)).toBe('@@ -1 +1 @@\n-\n+')
+})
+
+test('sliceRuns: a row scrolled sideways, cut to the room', () => {
+  const runs = [{ text: '│ ', c: 'rail' }, { text: '▸ ', c: 'arrow' }, { text: 'name.txt', c: 'label' }]
+  expect(sliceRuns(runs, 0, 99)).toEqual(runs)
+  expect(sliceRuns(runs, 0, 6)).toEqual([{ text: '│ ', c: 'rail' }, { text: '▸ ', c: 'arrow' }, { text: 'na', c: 'label' }])
+  expect(sliceRuns(runs, 3, 4)).toEqual([{ text: ' ', c: 'arrow' }, { text: 'nam', c: 'label' }])
+  expect(sliceRuns(runs, 4, 99)).toEqual([{ text: 'name.txt', c: 'label' }])
+  expect(sliceRuns(runs, 99, 10)).toEqual([])
+  // a wide char cut at either edge leaves a space
+  expect(sliceRuns([{ text: 'a漢b' }], 2, 99)).toEqual([{ text: ' b' }])
+  expect(sliceRuns([{ text: 'a漢b' }], 0, 2)).toEqual([{ text: 'a ' }])
 })

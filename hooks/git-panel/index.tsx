@@ -4,8 +4,8 @@ import type { EngineInterface, PluginOptions, Register, RenderElement } from 'cl
 import type { GitState, SettingsState, SettingsUi } from '../../types'
 import { iconChoice } from '../explorer-panel/icons'
 import { window as windowOf } from '../explorer-panel/tree'
-import { sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
-import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from '../shared/scrollbar'
+import { colsOf, sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
+import { BAR, H_EDGE, H_INNER, THUMB, barRuns, clamp, scrollbar } from '../shared/scrollbar'
 import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
 import { PaneButtons, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyFonts, parseTabbyScheme, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
@@ -295,6 +295,7 @@ const view = {
   detailRows: 1,
   infoRows: 1,
   infoLeftMax: 0,
+  branchLeftMax: 0, // Branches' furthest first column (horizontal bar)
   detailLeftMax: 0,
 }
 
@@ -651,6 +652,14 @@ const selectRef = ($: EngineInterface, ref: string) =>
 const toggleFolder = ($: EngineInterface, key: string) =>
   update($, git, s => ({ ...s, collapsed: toggled(s.collapsed ?? [], key) }))
 
+// Collapse All: every Branches folder and category closed (`keys`, every
+// folder key of the open tree).
+const collapseBranches = ($: EngineInterface, keys: string[]) =>
+  update($, git, s => ({ ...s, collapsed: keys, branchOffset: 0, branchLeft: 0 }))
+
+// Expand All: every Branches folder and category open.
+const expandBranches = ($: EngineInterface) => update($, git, s => ({ ...s, collapsed: [] }))
+
 const keyOf = (commit: Commit): string => 'commit:' + commit.sha
 
 // `sha` selected: Info keeps its scroll for the same commit, else starts over.
@@ -950,6 +959,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       'sb:dfiles': ['diffFileOffset', view.filesMax],
       'sb:details': ['detailOffset', view.detailMax],
       'hb:info': ['infoLeft', view.infoLeftMax],
+      'hb:branches': ['branchLeft', view.branchLeftMax],
       'hb:details': ['detailLeft', view.detailLeftMax],
     } as const
     const part = parts[element as keyof typeof parts]
@@ -1102,9 +1112,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     tabRows.graph = Math.max(2, graphInner - 1)
     tabRows.overview = Math.max(2, topInner - 1)
     graphRows = isGraph ? tabRows.graph : tabRows.overview
-    const graphWidth = (isGraph ? columns : rightCols) - 5
-    // the scrollbar takes one more column in each section
-    const sideWidth = sideCols - 3
+    const graphWidth = (isGraph ? columns : rightCols) - 4 - BAR
+    // the vertical bar takes BAR more columns in each section
+    const sideWidth = sideCols - 2 - BAR
 
     const branches = await branchesOf($, cwd)
     const lines = isChanges ? [] : await graphOf($, cwd, state)
@@ -1173,29 +1183,32 @@ export const register = (on: On, options?: PluginOptions): void => {
       details === undefined || isFiles || selected === undefined
         ? []
         : infoHead(details.head, selected, contains, head0?.name)
-    const infoMax = Math.max(0, infoAll.length - infoInner)
-    const infoOffset = clamp(state.infoOffset ?? 0, infoMax)
-    const infoShown = infoAll.slice(infoOffset, infoOffset + infoInner)
-    // Info's columns, past the frame and the vertical bar, scrolled by `infoLeft`.
-    const infoCols = Math.max(1, infoWidth - 3)
+    // Info's columns, past the frame and the vertical bar, scrolled by
+    // `infoLeft`; its horizontal bar takes the last inner row.
+    const infoCols = Math.max(1, infoWidth - 2 - BAR)
     const infoWide = widest(infoAll)
+    const infoLines = Math.max(1, infoInner - (infoWide > infoCols ? 1 : 0))
+    const infoMax = Math.max(0, infoAll.length - infoLines)
+    const infoOffset = clamp(state.infoOffset ?? 0, infoMax)
+    const infoShown = infoAll.slice(infoOffset, infoOffset + infoLines)
     const infoLeftMax = Math.max(0, infoWide - infoCols)
     const infoLeft = clamp(state.infoLeft ?? 0, infoLeftMax)
     // Diff Preview: a few head lines, then the diff windowed by `detailOffset`.
     const headRows = Math.max(6, Math.floor(fullInner / 2))
     const previewHead = isFiles && details !== undefined ? details.head.slice(0, headRows) : []
-    const diffRows = Math.max(1, fullInner - previewHead.length)
-    const diffTotal = isFiles && details !== undefined ? diffLines(details.diff).length : 0
     // Diff Preview's columns, past the frame and the vertical bar, scrolled by
     // `detailLeft`. Measured over the whole diff, not the window, so the thumb
     // keeps its size while the diff scrolls. A body line sits after Code's
     // gutter, so it needs the gutter's columns more; head lines have none.
     const previewCols = columns - filesCols
-    const detailCols = Math.max(1, previewCols - 3)
+    const detailCols = Math.max(1, previewCols - 2 - BAR)
     const detailWide =
       isFiles && details !== undefined
         ? Math.max(widest(previewHead), diffWidthOf(details.diff))
         : 0
+    // The diff's rows: its horizontal bar takes the last inner row.
+    const diffRows = Math.max(1, fullInner - previewHead.length - (detailWide > detailCols ? 1 : 0))
+    const diffTotal = isFiles && details !== undefined ? diffLines(details.diff).length : 0
     const detailLeftMax = Math.max(0, detailWide - detailCols)
     const detailLeft = clamp(state.detailLeft ?? 0, detailLeftMax)
     if (head0 === undefined && unborn === undefined) {
@@ -1204,8 +1217,26 @@ export const register = (on: On, options?: PluginOptions): void => {
       if (threw === before) unborn = name === undefined || name === '' ? null : name
     }
     const headName = head0?.name ?? unborn ?? undefined
-    const branchRoom = Math.max(2, fullInner - 1)
     const tree = branchTree(branches, new Set(state.collapsed ?? []))
+    // Branches: its frame over the Collapse All / Expand All row. Where rows
+    // are row clients they keep their whole label and scroll sideways under a
+    // horizontal bar (which takes the frame's last inner row) once the widest
+    // is past the room: frame, vertical bar, the blank ring cell and the
+    // selection mark.
+    const branchFrameRows = area - 1
+    const branchText = (row: BranchRow): string =>
+      row.kind === 'branch'
+        ? row.name + (trackLabel(row.branch.track) === '' ? '' : ' ' + trackLabel(row.branch.track))
+        : row.isGroup === true
+          ? row.name + ' (' + String(row.count ?? 0) + ')'
+          : row.name + '/'
+    const branchVisible = Math.max(1, sideWidth - 2)
+    const branchWide = hasDots ? tree.reduce((most, row) => Math.max(most, 2 * row.depth + 2 + colsOf(branchText(row))), 0) : 0
+    const isBranchWide = branchWide > branchVisible
+    // past the frame's inner rows: the `All` row, and the bar's row
+    const branchRoom = Math.max(2, branchFrameRows - 2 - 1 - (isBranchWide ? 1 : 0))
+    const branchLeftMax = Math.max(0, branchWide - branchVisible)
+    const branchLeft = clamp(state.branchLeft ?? 0, branchLeftMax)
     const branchWin = windowOf(tree, -1, branchRoom, state.branchOffset ?? 0)
     const branchRows = branchWin.rows
     view.columns = columns
@@ -1216,14 +1247,15 @@ export const register = (on: On, options?: PluginOptions): void => {
     view.branchMax = Math.max(0, tree.length - branchRoom)
     view.graphMax = Math.max(0, lines.length - graphRows)
     view.infoMax = infoMax
-    view.infoRows = infoInner
+    view.infoRows = infoLines
+    view.branchLeftMax = branchLeftMax
     view.infoLeftMax = infoLeftMax
     view.detailLeftMax = detailLeftMax
     view.filesMax = Math.max(0, frows.length - changeRoom)
     view.detailMax = Math.max(0, diffTotal - diffRows)
     view.detailRows = diffRows
     const bar = (cells: string[]) => (
-      <Box flexDirection="column" width={1} flexShrink={0}>
+      <Box flexDirection="column" width={BAR} flexShrink={0}>
         {cells.map((cell, i) => (
           <Text key={'bar:' + i} color={cell === THUMB ? t.accent : t.muted}>
             {cell}
@@ -1244,7 +1276,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       Client === undefined || total <= rows ? (
         bar([...Array.from({ length: lead }, () => ' '), ...scrollbar(total, rows, offset, rows)])
       ) : (
-        <Box flexDirection="column" width={1} flexShrink={0}>
+        <Box flexDirection="column" width={BAR} flexShrink={0}>
           {Array.from({ length: lead }, (_, i) => (
             <Text key={'lead:' + i}> </Text>
           ))}
@@ -1252,17 +1284,18 @@ export const register = (on: On, options?: PluginOptions): void => {
             key={key}
             module="../shared/scrollbar-client.tsx"
             props={{ total, visible: rows, offset, height: rows, color: t.accent }}
-            width={1}
+            width={BAR}
             height={rows}
           />
         </Box>
       )
 
-    // A horizontal bar over a text section's bottom border: an absolute Box at
-    // `top` (that border's row) in the section's unbordered wrapper, drawn after
-    // the frame so it paints over it, `width` columns from the corner (the
-    // right corner stays). Draggable on surfaces that draw a `Client`, a Text
-    // row elsewhere; nothing while every line fits.
+    // A horizontal bar BAR rows tall, the section's last inner row (the
+    // content gives it up) over its bottom border: an absolute Box at `top`
+    // (the frame's height less BAR) in the section's unbordered wrapper, drawn
+    // after the frame so it paints over it, `width` columns from the corner
+    // (the right corner stays). Draggable on surfaces that draw a `Client`,
+    // Text rows elsewhere; nothing while every line fits.
     const hbar = (
       key: string,
       total: number,
@@ -1272,12 +1305,16 @@ export const register = (on: On, options?: PluginOptions): void => {
       width: number,
     ) =>
       total <= visible || width <= 0 ? null : (
-        <Box position="absolute" top={top} left={1} flexDirection="row">
+        <Box position="absolute" top={top} left={1} flexDirection="column">
           {Client === undefined ? (
-            scrollbar(total, visible, offset, width, { thumb: H_THUMB, track: H_TRACK }).map((cell, i) => (
-              <Text key={'hbar:' + i} color={cell === H_THUMB ? t.accent : t.muted}>
-                {cell}
-              </Text>
+            [H_INNER, H_EDGE].map((glyphs, row) => (
+              <Box key={'hbar:' + row} flexDirection="row" height={1}>
+                {barRuns(scrollbar(total, visible, offset, width, glyphs), glyphs.thumb).map((part, i) => (
+                  <Text key={'hbar:' + row + ':' + i} color={part.isThumb ? t.accent : t.muted}>
+                    {part.text}
+                  </Text>
+                ))}
+              </Box>
             ))
           ) : (
             <Client
@@ -1285,7 +1322,7 @@ export const register = (on: On, options?: PluginOptions): void => {
               module="../shared/scrollbar-client.tsx"
               props={{ axis: 'x', total, visible, offset, height: width, color: t.accent }}
               width={width}
-              height={1}
+              height={BAR}
             />
           )}
         </Box>
@@ -1383,6 +1420,7 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     const branchColumn = (
       <Box flexDirection="column" width={sideCols} flexShrink={0} height={area}>
+      <Box flexDirection="column" height={branchFrameRows} flexShrink={0}>
       <Box {...border} flexDirection="row" height="100%">
         <Box flexDirection="column" flexGrow={1}>
         <Box flexDirection="row" backgroundColor={state.ref === 'all' ? sel : undefined}>
@@ -1400,12 +1438,6 @@ export const register = (on: On, options?: PluginOptions): void => {
             const k = row.kind === 'branch' ? 'b:' + row.branch.name : row.key
             const isSelected = row.kind === 'branch' && state.ref === row.branch.name
             const cols = Math.max(1, sideWidth - 1)
-            const text =
-              row.kind === 'branch'
-                ? row.name + (trackLabel(row.branch.track) === '' ? '' : ' ' + trackLabel(row.branch.track))
-                : row.isGroup === true
-                  ? row.name + ' (' + String(row.count ?? 0) + ')'
-                  : row.name + '/'
 
             return (
               <Box key={'bline:' + k} flexDirection="row" backgroundColor={isSelected ? sel : undefined}>
@@ -1420,7 +1452,8 @@ export const register = (on: On, options?: PluginOptions): void => {
                     isSelected,
                     isRemote: row.kind === 'branch' ? row.branch.isRemote : row.key.startsWith('r:') && row.isGroup !== true,
                     isHead: row.kind === 'branch' && row.branch.isHead,
-                    label: fit(text, Math.max(3, cols - 1 - rails.length - 2)),
+                    label: branchText(row),
+                    left: branchLeft,
                     colors: { accent: t.accent, muted: t.muted, selection: sel },
                   }}
                   width={cols}
@@ -1493,6 +1526,35 @@ export const register = (on: On, options?: PluginOptions): void => {
         {dragBar('sb:branches', tree.length, branchRoom, branchWin.offset, 1)}
       </Box>
       {titled('title:branches', 'Branches')}
+      {hbar('hb:branches', branchWide, branchVisible, branchLeft, branchFrameRows - BAR, sideCols - 2 - BAR)}
+      </Box>
+      {/* Under Branches' frame: every folder closed, or every folder opened;
+          cut at the right end on a narrow Branches. */}
+      <Box key="branches:actions" flexDirection="row" gap={4} height={1} overflow="hidden">
+        <Box flexShrink={0}>
+        {Btn(elements, t, {
+          key: 'collapse-all',
+          label: 'Collapse All',
+          variant: 'secondary',
+          surface,
+          onPress: asleep(() =>
+            collapseBranches(
+              $,
+              branchTree(branches, new Set()).flatMap(row => (row.kind === 'folder' ? [row.key] : [])),
+            ),
+          ),
+        })}
+        </Box>
+        <Box flexShrink={0}>
+        {Btn(elements, t, {
+          key: 'expand-all',
+          label: 'Expand All',
+          variant: 'secondary',
+          surface,
+          onPress: asleep(() => expandBranches($)),
+        })}
+        </Box>
+      </Box>
       </Box>
     )
 
@@ -1765,9 +1827,9 @@ export const register = (on: On, options?: PluginOptions): void => {
           </Text>
         ))}
         </Box>
-        {dragBar('sb:info', infoAll.length, infoInner, infoOffset)}
+        {dragBar('sb:info', infoAll.length, infoLines, infoOffset)}
       </Box>
-      {hbar('hb:info', infoWide, infoCols, infoLeft, rows - 1, infoCols)}
+      {hbar('hb:info', infoWide, infoCols, infoLeft, rows - BAR, infoCols)}
       </Box>
     )
 
@@ -1787,7 +1849,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       noneText: string
       onPick: (path: string) => void
     }) => {
-      const filesWidth = filesCols - 5
+      const filesWidth = filesCols - 4 - BAR
       const pOffset = clamp(state.detailOffset ?? 0, diffTotal - diffRows)
       const pDiff = details === undefined ? '' : sliceDiff(details.diff, pOffset, diffRows)
 
@@ -1869,7 +1931,7 @@ export const register = (on: On, options?: PluginOptions): void => {
             {dragBar('sb:details', diffTotal, diffRows, pOffset, previewHead.length)}
           </Box>
           {titled('title:diff', 'Diff Preview')}
-          {hbar('hb:details', detailWide, detailCols, detailLeft, area - 1, detailCols)}
+          {hbar('hb:details', detailWide, detailCols, detailLeft, area - BAR, detailCols)}
           </Box>
           {splitter('split:files', 'x', filesCols - 1, 1, area - 2, filesCols)}
         </Box>
@@ -1880,11 +1942,11 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     return own(
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
-        {/* The title, the panel tabs and the actions, 2 cells apart with a
-            divider after the title and after the tabs, cut at the right end on
-            a narrow pane (kept for Settings). */}
-        <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
-          <Box key="header:tabs" flexDirection="row" gap={2} flexShrink={1} overflow="hidden">
+        {/* The title, the panel tabs and, in the diff view, Back, 2 cells
+            apart with a divider after the title and after the tabs, cut at the
+            right end on a narrow pane; the actions and Settings at the right. */}
+        <Box key="header" flexDirection="row" alignItems="center" height={1}>
+          <Box key="header:tabs" flexDirection="row" gap={2} flexShrink={1} flexGrow={1} overflow="hidden">
             <Box flexShrink={0}>
               <Text bold color={t.text}>{' Git'}</Text>
             </Box>
@@ -1900,41 +1962,41 @@ export const register = (on: On, options?: PluginOptions): void => {
                 onSelect: asleep((id: string) => showTab(id as Tab)),
               })}
             </Box>
-            <Box flexShrink={0}>
-              <Text color={t.border}>|</Text>
-            </Box>
+            {isDiff && (
+              <Box flexShrink={0}>
+                <Text color={t.border}>|</Text>
+              </Box>
+            )}
             {isDiff && (
               <Box flexShrink={0}>
                 {Btn(elements, t, { key: 'back', label: 'Back', variant: 'secondary', surface, onPress: asleep(closeDiff) })}
               </Box>
             )}
-            <Box flexShrink={0}>
-              {Btn(elements, t, {
-                key: 'fetch',
-                label: busy === 'fetch' ? 'Fetching…' : 'Fetch',
-                variant: 'ghost',
-                surface,
-                onPress: asleep(() => remote($, 'fetch')),
-              })}
-            </Box>
-            <Box flexShrink={0}>
-              {Btn(elements, t, {
-                key: 'pull',
-                label: busy === 'pull' ? 'Pulling…' : 'Pull',
-                variant: 'primary',
-                surface,
-                onPress: asleep(() => remote($, 'pull')),
-              })}
-            </Box>
-            <Box flexShrink={0}>
-              {Btn(elements, t, {
-                key: 'push',
-                label: busy === 'push' ? 'Pushing…' : 'Push',
-                variant: 'secondary',
-                surface,
-                onPress: asleep(() => remote($, 'push')),
-              })}
-            </Box>
+          </Box>
+          {/* The remote actions in the right corner (left of Settings), 2
+              cells apart; the tabs give way first on a narrow pane. */}
+          <Box key="header:actions" flexDirection="row" gap={2} flexShrink={0} marginLeft={2} paddingRight={paneButtons === undefined ? 1 : 2}>
+            {Btn(elements, t, {
+              key: 'fetch',
+              label: busy === 'fetch' ? 'Fetching…' : 'Fetch',
+              variant: 'ghost',
+              surface,
+              onPress: asleep(() => remote($, 'fetch')),
+            })}
+            {Btn(elements, t, {
+              key: 'pull',
+              label: busy === 'pull' ? 'Pulling…' : 'Pull',
+              variant: 'primary',
+              surface,
+              onPress: asleep(() => remote($, 'pull')),
+            })}
+            {Btn(elements, t, {
+              key: 'push',
+              label: busy === 'push' ? 'Pushing…' : 'Push',
+              variant: 'secondary',
+              surface,
+              onPress: asleep(() => remote($, 'push')),
+            })}
           </Box>
           {paneButtons !== undefined && <Box flexShrink={0}>{paneButtons}</Box>}
         </Box>
@@ -1990,7 +2052,8 @@ export const register = (on: On, options?: PluginOptions): void => {
             </Box>
             {/* the seam's second column is the right column's left border: keep
                 Commits' bottom-left and Info's top-left corners (rows from top=1) */}
-            {splitter('split:side', 'x', sideCols - 1, 1, area - 2, sideCols, [
+            {/* down to Branches' bottom corner: its frame ends a row above Info's */}
+            {splitter('split:side', 'x', sideCols - 1, 1, branchFrameRows - 2, sideCols, [
               { row: topRows - 2, text: '╰' },
               { row: topRows - 1, text: '╭' },
             ])}

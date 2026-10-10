@@ -203,6 +203,53 @@ export const sliceCols = (line: string, left: number): string => {
   return out
 }
 
+// `text` (no tabs) kept between columns `from` and `to` of its own: a wide
+// char cut at either edge leaves a space for the half that shows.
+const cutCols = (text: string, from: number, to: number): string => {
+  let out = ''
+  let col = 0
+  let isDropped = false
+  for (const ch of text) {
+    const w = widthOf(ch.codePointAt(0)!)
+    if (w === 0) {
+      // a combining mark goes with the char before it
+      if (!isDropped && col > from && col <= to) out += ch
+      continue
+    }
+    if (col >= from && col + w <= to) {
+      out += ch
+      isDropped = false
+    } else {
+      const shown = Math.min(col + w, to) - Math.max(col, from)
+      if (shown > 0) out += ' '.repeat(shown)
+      isDropped = true
+    }
+    col += w
+  }
+
+  return out
+}
+
+// One row's styled runs with its first `left` columns dropped and cut to
+// `width` columns: what a row scrolled sideways shows. A run wholly outside
+// is left out.
+export const sliceRuns = <T extends { text: string }>(runs: readonly T[], left: number, width: number): T[] => {
+  const from = Math.max(0, Math.floor(left))
+  const to = from + Math.max(0, Math.floor(width))
+  const out: T[] = []
+  let col = 0
+  for (const run of runs) {
+    const cols = colsOf(run.text)
+    if (col + cols > from && col < to) {
+      const text = cutCols(run.text, from - col, to - col)
+      if (text !== '') out.push({ ...run, text })
+    }
+    col += cols
+  }
+
+  return out
+}
+
 const HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/
 
 // A unified diff with each hunk body line's content cut at column `left`; its

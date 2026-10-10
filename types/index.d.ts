@@ -26,6 +26,7 @@ export type ExplorerState = {
   selected?: string // the file shown in the preview (Enter or click)
   cursor?: string // the row the arrows are on (the focus ring)
   offset: number
+  treeLeft?: number // first Files column shown (its horizontal bar); rows past the selection bar
   previewOffset: number // first preview line shown
   previewLeft?: number // first preview column shown (horizontal bar); reset with previewOffset
   previewRaw?: boolean // the selected file shown as source instead of rendered (the view chip: svg, markdown); reset with previewOffset
@@ -47,6 +48,7 @@ export type GitState = {
   offset: number
   limit?: number // commits shown; absent is the Settings page size (`gitLimit`, 200)
   branchOffset: number // first branch row shown
+  branchLeft?: number // first Branches column shown (its horizontal bar); rows past the selection mark
   detailOffset: number // first diff line shown (Diff Preview)
   infoOffset?: number // first Info line shown
   infoLeft?: number // first Info column shown (its horizontal bar); 0 when the shown commit changes
