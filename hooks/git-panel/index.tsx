@@ -515,13 +515,13 @@ const changeDetailsOf = async (
   return shown
 }
 
-// The Files list as drawn now, a tree grouped by `/`: the cached status, or in
-// the diff view the open commit's files.
-const rowsOf = (state: GitState): ChangeRow[] =>
-  changeRows(
-    state.diff === undefined ? (statusCache ?? []) : (diffCache.get(state.diff)?.files ?? []),
-    new Set(state.changeCollapsed ?? []),
-  )
+// The Files list's changes: the cached status, or in the diff view the open
+// commit's files.
+const changesOf = (state: GitState): Change[] =>
+  state.diff === undefined ? (statusCache ?? []) : (diffCache.get(state.diff)?.files ?? [])
+
+// The Files list as drawn now, a tree grouped by `/`.
+const rowsOf = (state: GitState): ChangeRow[] => changeRows(changesOf(state), new Set(state.changeCollapsed ?? []))
 
 const fit = (text: string, width: number): string =>
   text.length > width ? text.slice(0, Math.max(1, width - 1)) + '…' : text
@@ -659,6 +659,18 @@ const collapseBranches = ($: EngineInterface, keys: string[]) =>
 
 // Expand All: every Branches folder and category open.
 const expandBranches = ($: EngineInterface) => update($, git, s => ({ ...s, collapsed: [] }))
+
+// Collapse All under Files (Change Log, the diff view): every folder of the
+// list drawn now closed, its scroll back at the top.
+const collapseChanges = ($: EngineInterface) =>
+  update($, git, s => ({
+    ...s,
+    changeCollapsed: changeRows(changesOf(s), new Set()).flatMap(row => (row.kind === 'folder' ? [row.key] : [])),
+    ...(s.diff === undefined ? { changeOffset: 0 } : { diffFileOffset: 0 }),
+  }))
+
+// Expand All under Files: every folder open.
+const expandChanges = ($: EngineInterface) => update($, git, s => ({ ...s, changeCollapsed: [] }))
 
 const keyOf = (commit: Commit): string => 'commit:' + commit.sha
 
@@ -1154,7 +1166,8 @@ export const register = (on: On, options?: PluginOptions): void => {
         ? undefined
         : keyOf(selected)
     const remotes = new Set(branches.filter(branch => branch.isRemote).map(branch => branch.name))
-    changeRoom = Math.max(2, fullInner)
+    // Files' frame sits over the Collapse All / Expand All row.
+    changeRoom = Math.max(2, fullInner - 1)
     const diffShown = isDiff && state.diff !== undefined ? await diffOf($, cwd, state.diff) : undefined
     // The Files list: the working tree (Change Log) or the open commit's files.
     const frows = isFiles ? rowsOf(state) : []
@@ -1862,6 +1875,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       return (
         <Box flexDirection="row">
           <Box flexDirection="column" width={filesCols} flexShrink={0} height={area}>
+          <Box flexDirection="column" height={area - 1}>
           <Box {...border} flexDirection="row" height="100%">
             <Box flexDirection="column" flexGrow={1}>
               {frows.length === 0 && <Text color={t.muted}>{p.emptyText}</Text>}
@@ -1916,6 +1930,29 @@ export const register = (on: On, options?: PluginOptions): void => {
             {/* The name chip: name + 2 cells from column 1, short of the far corner. */}
             {titled('title:files', fit(p.title, Math.max(5, filesCols - 5)))}
           </Box>
+          {/* Under Files' frame: every folder closed on the left, every folder
+              opened on the right; cut at the right end on a narrow Files. */}
+          <Box key="files:actions" flexDirection="row" justifyContent="space-between" gap={4} height={1} overflow="hidden">
+            <Box flexShrink={0}>
+              {Btn(elements, t, {
+                key: 'collapse-all',
+                label: 'Collapse All',
+                variant: 'secondary',
+                surface,
+                onPress: asleep(() => collapseChanges($)),
+              })}
+            </Box>
+            <Box flexShrink={0}>
+              {Btn(elements, t, {
+                key: 'expand-all',
+                label: 'Expand All',
+                variant: 'secondary',
+                surface,
+                onPress: asleep(() => expandChanges($)),
+              })}
+            </Box>
+          </Box>
+          </Box>
           <Box flexDirection="column" width={previewCols} flexShrink={0} height={area}>
           <Box {...border} flexDirection="row" height="100%">
             <Box flexDirection="column" flexGrow={1}>
@@ -1939,7 +1976,8 @@ export const register = (on: On, options?: PluginOptions): void => {
           {titled('title:diff', 'Diff Preview')}
           {hbar('hb:details', detailWide, detailCols, detailLeft, area - BAR, detailCols)}
           </Box>
-          {splitter('split:files', 'x', filesCols - 1, 1, area - 2, filesCols)}
+          {/* down to Files' bottom corner: its frame ends a row above Diff Preview's */}
+          {splitter('split:files', 'x', filesCols - 1, 1, area - 3, filesCols)}
         </Box>
       )
     }

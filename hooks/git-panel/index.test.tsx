@@ -855,6 +855,24 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await keys(ui, 'change:')).toEqual(['change:top.txt', 'change:src/a.ts'])
     })
 
+    test(`${surface}/${columns}: Collapse All closes every Files folder; Expand All opens them`, async ($, on) => {
+      const ui = await open($, on, [], ['?? src/a.ts', ' M src/ui/b.ts', ' M top.txt', ''].join('\0'))
+      await ui.press({ key: 'tab:changelog' })
+
+      // under Files' frame, 4 cells apart
+      expect((await ui.find({ key: 'files:actions' }))?.props.gap).toBe(4)
+      await ui.press({ key: 'collapse-all' })
+      expect(await keys(ui, 'cdir:')).toEqual(['cdir:c:src'])
+      expect(await keys(ui, 'change:')).toEqual(['change:top.txt'])
+      await ui.press({ key: 'expand-all' })
+      expect(await keys(ui, 'cdir:')).toEqual(['cdir:c:src', 'cdir:c:src/ui'])
+      expect(await keys(ui, 'change:')).toEqual([
+        'change:top.txt',
+        'change:src/a.ts',
+        'change:src/ui/b.ts',
+      ])
+    })
+
     test(`${surface}/${columns}: clean tree says so`, async ($, on) => {
       const ui = await open($, on, [], '')
       await ui.press({ key: 'tab:changelog' })
