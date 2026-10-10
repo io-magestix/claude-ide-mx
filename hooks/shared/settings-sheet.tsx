@@ -1,11 +1,12 @@
 /*
- * The Settings sheet and the Settings and Exit Buttons, drawn by both panels: pure (el, theme,
+ * The Settings sheet and the Settings Button, drawn by both panels: pure (el, theme,
  * props) -> tree; every `$` call stays in the panel's index.tsx, which passes
  * the values and the callbacks.
  *
- * Settings and Exit sit at the right end of the panel's title row (body row 0), under the
- * pane's close ✕: the ✕ row is the engine's frame, and a Box placed above the
- * body (`top={-1}`) is not drawn.
+ * Settings sits at the right end of the panel's title row (body row 0), under the
+ * pane's close ✕: the ✕ row is the engine's frame (it closes the pane; the
+ * plugin cannot hide it), and a Box placed above the body (`top={-1}`) is not
+ * drawn.
  *
  * The sheet is an overlay drawn LAST in the panel's unbordered root column:
  * a dimmed backdrop from row 1 (the title row and its Settings Button stay pressable) and a
@@ -25,19 +26,18 @@ type FileIcons = NonNullable<SettingsState['fileIcons']>
 const SETTINGS_BUTTON = 'settings'
 
 /**
- * The title row's right end: `Settings` (pressed on the open sheet = done) and
- * `Exit` (closes the pane, as the engine's close mark does), ghost Btns.
+ * The title row's right end: `Settings` (pressed on the open sheet = done), a
+ * ghost Btn.
  */
 export function PaneButtons(
   el: ElementTable,
   t: Theme,
-  p: { surface?: RenderSurface; isOpen: boolean; onSettings: () => void; onExit: () => void },
+  p: { surface?: RenderSurface; isOpen: boolean; onSettings: () => void },
 ) {
   const { Box } = el
   return (
     <Box key="pane-buttons" flexDirection="row" gap={1}>
       {Btn(el, t, { key: SETTINGS_BUTTON, label: 'Settings', variant: p.isOpen ? 'primary' : 'ghost', surface: p.surface, onPress: p.onSettings })}
-      {Btn(el, t, { key: 'exit', label: 'Exit', variant: 'ghost', surface: p.surface, onPress: p.onExit })}
     </Box>
   )
 }

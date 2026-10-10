@@ -1826,7 +1826,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: git's Settings opens the sheet from the title row; a default tab applies while none is chosen`, async ($, on) => {
     const { ui, store } = await open($, on)
     expect((await ui.find({ key: 'settings' }))?.props.label).toBe('Settings')
-    expect((await ui.find({ key: 'exit' }))?.props.label).toBe('Exit')
+    expect(await ui.find({ key: 'exit' })).toBeUndefined()
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
     // the title row and its Settings Button stay above the sheet

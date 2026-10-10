@@ -996,16 +996,15 @@ export const register = (on: On, options?: PluginOptions): void => {
     const sel = onDefaultFg(t.surfaceHover)
     const lanes = lanePalette(t)
     const surface = e.surface
-    // Settings and Exit (the title row's right end, under the pane's close mark)
-    // and its sheet, drawn last over the panel below the title row. The split
-    // pane has one pair, the Explorer's, and its sheet covers both halves.
+    // Settings (the title row's right end, under the pane's close mark) and its
+    // sheet, drawn last over the panel below the title row. The split pane has
+    // one, the Explorer's, and its sheet covers both halves.
     const paneButtons = isSplit
       ? undefined
       : PaneButtons(elements, t, {
           surface,
           isOpen: sheet.open === PANE,
           onSettings: () => void toggleSettings($),
-          onExit: asleep(() => $.ui.close({ id: PANE })),
         })
     const settingsSheet =
       !isSplit && sheet.open === PANE
@@ -1072,7 +1071,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // Each section is framed in the theme's border color, or the `/color` accent.
     const border = { borderStyle: 'round', borderColor: accentBorder ? t.accent : t.border } as const
     // One header line (the title, the panel tabs and the actions, its right
-    // end kept for Settings and Exit; no interactive line: nothing asks) and one
+    // end kept for Settings; no interactive line: nothing asks) and one
     // footer row; the sections share the rest.
     const headerRows = 1
     const area = Math.max(4, bodyRows - headerRows - 1)
@@ -1883,7 +1882,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
         {/* The title, the panel tabs and the actions, 2 cells apart with a
             divider after the title and after the tabs, cut at the right end on
-            a narrow pane (kept for Settings and Exit). */}
+            a narrow pane (kept for Settings). */}
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
           <Box key="header:tabs" flexDirection="row" gap={2} flexShrink={1} overflow="hidden">
             <Box flexShrink={0}>
