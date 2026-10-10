@@ -202,8 +202,8 @@ export const fitLabel = (label: string, width: number): string => {
   return out + '…'
 }
 
-// `path` as named from `base` (the repo's toplevel): `base` itself is `.`, a
-// path outside it stays as given.
+// `path` as named from `base` (the root, or the repo's toplevel): `base`
+// itself is `.`, a path outside it stays as given.
 export const relativePath = (path: string, base: string): string => {
   const trimmed = base.length > 1 && base.endsWith('/') ? base.slice(0, -1) : base
   if (path === trimmed) return '.'

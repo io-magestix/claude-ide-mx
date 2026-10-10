@@ -2841,6 +2841,9 @@ export const register = (on: On, options?: PluginOptions): void => {
                   btn('edit', 'Edit', 'secondary', () => void startEdit($, preview.path))}
                 {btn('copy-name', 'Copy Name', 'ghost', () => void copyText($, nameOf(state.cursor ?? current.path), surface))}
                 {btn('copy-path', 'Copy Full Path', 'ghost', () => void copyText($, state.cursor ?? current.path, surface))}
+                {btn('copy-relative', 'Copy Relative Path', 'ghost', () =>
+                  void copyText($, relativePath(state.cursor ?? current.path, root), surface),
+                )}
               </Box>
             )}
             {isNotUnity && (

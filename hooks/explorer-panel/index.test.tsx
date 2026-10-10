@@ -465,20 +465,26 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'item:/proj/src/main.ts' })).toBeDefined()
     expect(copied).toEqual([])
 
-    // `copy name` and `copy full path` copy the cursor's row
+    // `copy name`, `copy full path` and `copy relative path` copy the cursor's row
     expect((await ui.find({ key: 'copy-name' }))?.props.label).toBe('Copy Name')
     expect((await ui.find({ key: 'copy-path' }))?.props.label).toBe('Copy Full Path')
+    expect((await ui.find({ key: 'copy-relative' }))?.props.label).toBe('Copy Relative Path')
     await ui.press({ key: 'copy-name' })
     expect(copied).toEqual(['src'])
     expect(toasts.at(-1)).toBe('Copied: src')
     await ui.press({ key: 'copy-path' })
     expect(copied.at(-1)).toBe('/proj/src')
+    await ui.press({ key: 'copy-relative' })
+    expect(copied.at(-1)).toBe('src')
     await click(ui, '/proj/src/main.ts', 6)
     await ui.press({ key: 'copy-name' })
     expect(copied.at(-1)).toBe('main.ts')
     await ui.press({ key: 'copy-path' })
     expect(copied.at(-1)).toBe('/proj/src/main.ts')
     expect(toasts.at(-1)).toBe('Copied: /proj/src/main.ts')
+    await ui.press({ key: 'copy-relative' })
+    expect(copied.at(-1)).toBe('src/main.ts')
+    expect(toasts.at(-1)).toBe('Copied: src/main.ts')
   })
 
   test(`${surface}: copy full path gives the absolute path, whatever the repo`, async ($, on) => {
@@ -506,6 +512,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(copied).toEqual([])
     await ui.press({ key: 'copy-path' })
     expect(copied).toEqual(['/mono/app/a.ts'])
+    // `copy relative path` names it from the root
+    await ui.press({ key: 'copy-relative' })
+    expect(copied.at(-1)).toBe('a.ts')
   })
 
   test(`${surface}: rows carry change marks: + added, * edited, * on a dir above a change`, async ($, on) => {
@@ -1694,7 +1703,8 @@ test('vscode: the name Button selects, the arrow Button opens and closes', async
   // the copy Buttons work here too
   await ui.press({ key: 'copy-name' })
   await ui.press({ key: 'copy-path' })
-  expect(copied).toEqual(['src', '/proj/src'])
+  await ui.press({ key: 'copy-relative' })
+  expect(copied).toEqual(['src', '/proj/src', 'src'])
 })
 
 // ------------------------------------------------------------ Header lines
