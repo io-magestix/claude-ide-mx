@@ -1,6 +1,6 @@
 {
   "name": "ide-panes",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "IDE panes: project explorer and git view",
   "author": { "name": "magestix" },
   "types": "./types/index.d.ts",
