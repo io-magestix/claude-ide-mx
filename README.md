@@ -17,7 +17,7 @@ The panels open with each new session and close on exit; `/ide-panels` opens the
 
 One pane, 20% of the window wide: the Explorer on top, Git below, with a draggable seam between them. Outside a git repo, Git shrinks to a two-row note until a repo appears.
 
-- **Explorer**: file tree (Files, or Unity with `.meta` GUID references) with file icons and git change marks; preview of code, Markdown, images and SVG; an in-pane editor; new file, delete, copy path and multi-select (ctrl/shift-click).
+- **Explorer**: file tree (Files, or Unity with `.meta` GUID references) with file icons and git change marks; preview of code, Markdown, images and SVG; an in-pane editor for existing files; copy a file's name or full path.
 - **Git**: branches, commits with a lane graph and commit info, working-tree changes with diffs, a diff view per commit, `Fetch` and `Pull` (`--ff-only`).
 
 ## Settings

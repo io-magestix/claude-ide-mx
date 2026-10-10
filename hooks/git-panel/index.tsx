@@ -3,7 +3,6 @@ import type { EngineInterface, PluginOptions, Register, RenderElement } from 'cl
 
 import type { GitState, SettingsState, SettingsUi } from '../../types'
 import { iconChoice } from '../explorer-panel/icons'
-import { toggleMark } from '../explorer-panel/marks'
 import { window as windowOf } from '../explorer-panel/tree'
 import { sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
 import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from '../shared/scrollbar'
@@ -27,6 +26,7 @@ import {
   changeDiffArgv,
   changeGlyph,
   changeRows,
+  toggled,
   cellRuns,
   changeWords,
   fileDiff,
@@ -577,7 +577,7 @@ const selectRef = ($: EngineInterface, ref: string) =>
 
 // Opens or closes a Branches folder or category (`l:`, `r:origin`, ...).
 const toggleFolder = ($: EngineInterface, key: string) =>
-  update($, git, s => ({ ...s, collapsed: toggleMark(s.collapsed ?? [], key) }))
+  update($, git, s => ({ ...s, collapsed: toggled(s.collapsed ?? [], key) }))
 
 const keyOf = (commit: Commit): string => 'commit:' + commit.sha
 
@@ -1249,7 +1249,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       }))
 
     const toggleChange = (key: string) =>
-      update($, git, s => ({ ...s, changeCollapsed: toggleMark(s.changeCollapsed ?? [], key) }))
+      update($, git, s => ({ ...s, changeCollapsed: toggled(s.changeCollapsed ?? [], key) }))
 
     // The section's name sits on its top border. A bordered Box clips its
     // children, so the title is an absolute Box after it, at top={0}, in an

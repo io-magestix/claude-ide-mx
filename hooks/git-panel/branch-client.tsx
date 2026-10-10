@@ -11,8 +11,8 @@ type BranchHit = 'arrow' | 'name'
 // label, a category row's its count, a folder's a trailing `/`).
 //
 // Pointer: the shared row gesture (`row-gesture.ts`) over `branchHit`: a click
-// posts `{ hit }` (`arrow` on a folder's arrow, `name` elsewhere) with the
-// `ctrl`/`shift` flags of the down, a double-click `{ hit: 'double' }`.
+// posts `{ hit }` (`arrow` on a folder's arrow, `name` elsewhere), a
+// double-click `{ hit: 'double' }`.
 type Props = {
   depth: number
   isFolder: boolean

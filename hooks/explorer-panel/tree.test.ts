@@ -1,17 +1,14 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
-  afterDelete,
   changeMarks,
   clip,
-  deleteTarget,
   dirsAbove,
   filters,
   flatten,
   isBinary,
   languageOf,
   markOf,
-  newFilePath,
   relativePath,
   rowHit,
   window,
@@ -195,55 +192,6 @@ test('clip caps lines', () => {
   expect(clip('a\nb\nc', 2)).toBe('a\nb')
 })
 
-test('newFilePath nests under the base dir', () => {
-  expect(newFilePath('/p/src', 'a/b.ts', '/p')).toEqual({ path: '/p/src/a/b.ts' })
-  expect(newFilePath('/p', '  ./x.ts ', '/p')).toEqual({ path: '/p/x.ts' })
-  expect(newFilePath('/', 'x.ts', '/')).toEqual({ path: '/x.ts' })
-})
-
-test('newFilePath refuses empty, absolute, `..`, a dir and outside the root', () => {
-  const refused = (base: string, name: string) => 'error' in newFilePath(base, name, '/p')
-  expect(refused('/p', '   ')).toBe(true)
-  expect(refused('/p', './')).toBe(true)
-  expect(refused('/p', '/etc/x')).toBe(true)
-  expect(refused('/p', '~/x')).toBe(true)
-  expect(refused('/p', '../x')).toBe(true)
-  expect(refused('/p', 'a/../../x')).toBe(true)
-  expect(refused('/p', 'a/')).toBe(true)
-  expect(refused('/q', 'x.ts')).toBe(true)
-  expect(refused('/pp', 'x.ts')).toBe(true)
-})
-
-test('deleteTarget refuses the root, outside it and odd segments', () => {
-  expect(deleteTarget('/p/src', '/p')).toEqual({ path: '/p/src' })
-  expect(deleteTarget('/p/src/a.ts', '/p/')).toEqual({ path: '/p/src/a.ts' })
-  expect(deleteTarget('/x.ts', '/')).toEqual({ path: '/x.ts' })
-  const refused = (path: string, root = '/p') => 'error' in deleteTarget(path, root)
-  expect(refused('/p')).toBe(true)
-  expect(refused('/p/')).toBe(true)
-  expect(refused('/', '/')).toBe(true)
-  expect(refused('')).toBe(true)
-  expect(refused('/p/x', '')).toBe(true)
-  expect(refused('/pq/x')).toBe(true)
-  expect(refused('/etc/passwd')).toBe(true)
-  expect(refused('/p/../etc')).toBe(true)
-  expect(refused('/p/src/./a')).toBe(true)
-  expect(refused('/p//a')).toBe(true)
-})
-
-test('afterDelete selects the next sibling, else the previous, else the parent', () => {
-  const rows = flatten(listings, new Set(['/p/src', '/p/src/inner']), '/p')
-  // Docs, src (inner (deep.ts), a.ts, z.ts), A.md, b.txt
-  expect(afterDelete(rows, '/p/src')).toBe('/p/A.md')
-  expect(afterDelete(rows, '/p/src/inner')).toBe('/p/src/a.ts')
-  expect(afterDelete(rows, '/p/src/z.ts')).toBe('/p/src/a.ts')
-  expect(afterDelete(rows, '/p/src/inner/deep.ts')).toBe('/p/src/inner')
-  expect(afterDelete(rows, '/p/b.txt')).toBe('/p/A.md')
-  expect(afterDelete(rows, '/p/gone')).toBeUndefined()
-  const only = flatten(new Map([['/q', [file('one')]]]), new Set(), '/q')
-  expect(afterDelete(only, '/q/one')).toBeUndefined()
-})
-
 test('relativePath names a path from the repo toplevel', () => {
   expect(relativePath('/r/hooks/explorer-panel', '/r')).toBe('hooks/explorer-panel')
   expect(relativePath('/r/a.ts', '/r/')).toBe('a.ts')
@@ -254,9 +202,9 @@ test('relativePath names a path from the repo toplevel', () => {
   expect(relativePath('/a.ts', '/')).toBe('a.ts')
 })
 
-test('rowHit splits a row into mark, rails, arrow and name', () => {
+test('rowHit splits a row into its arrow and name', () => {
   // depth 0 dir: `▌▸ name`
-  expect(rowHit(0, 'dir', 0)).toBe('mark')
+  expect(rowHit(0, 'dir', 0)).toBe('name')
   expect(rowHit(0, 'dir', 1)).toBe('arrow')
   expect(rowHit(0, 'dir', 2)).toBe('arrow')
   expect(rowHit(0, 'dir', 3)).toBe('name')
@@ -267,7 +215,7 @@ test('rowHit splits a row into mark, rails, arrow and name', () => {
   expect(rowHit(2, 'dir', 6)).toBe('arrow')
   expect(rowHit(2, 'dir', 7)).toBe('name')
   // a file has no arrow
-  expect(rowHit(0, 'file', 0)).toBe('mark')
+  expect(rowHit(0, 'file', 0)).toBe('name')
   expect(rowHit(0, 'file', 1)).toBe('name')
   expect(rowHit(1, 'file', 3)).toBe('name')
 })

@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { BRANCHES, LOG, MERGE_NAME_STATUS, MERGE_PATCH, MULTI_PATCH, NAME_STATUS, PATCH } from './fixtures'
 import {
+  toggled,
   branchHit,
   branchTree,
   copyTextOf,
@@ -587,4 +588,9 @@ test('containsArgv and parseContains', () => {
   ].join('\n')
   expect(parseContains(stdout)).toEqual({ local: ['main', 'fix/y'], remote: ['origin/main', 'upstream/fix/x'] })
   expect(parseContains('')).toEqual({ local: [], remote: [] })
+})
+
+test('toggled adds a key, or removes it when there', () => {
+  expect(toggled([], 'l:')).toEqual(['l:'])
+  expect(toggled(['l:', 'r:origin'], 'l:')).toEqual(['r:origin'])
 })

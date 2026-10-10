@@ -4,7 +4,7 @@ import { isOnRow, rowGesture } from '../shared/row-gesture'
 import { rowHit } from './tree'
 import type { ChangeMark, Entry, RowHit } from './tree'
 
-// One tree row as the Files section draws it: the selection mark, a rail per
+// One tree row as the Files section draws it: the selection bar, a rail per
 // depth level, the dir arrow, the kind's icon when icons are on, the name
 // (already cut to the room), then its change mark (`+` added, `*` edited)
 // when it has one. The
@@ -12,15 +12,13 @@ import type { ChangeMark, Entry, RowHit } from './tree'
 // underlines the name to show where it is.
 //
 // Pointer: the shared row gesture (`row-gesture.ts`) over `rowHit`: a click
-// posts `{ hit }` (`arrow` on a dir's arrow, `mark` on the mark cell, `name`
-// elsewhere) with the `ctrl`/`shift` flags of the down, a double-click
-// `{ hit: 'double' }`.
+// posts `{ hit }` (`arrow` on a dir's arrow, `name` elsewhere), a
+// double-click `{ hit: 'double' }` (the Explorer takes it as a click).
 type Props = {
   depth: number
   kind: Entry['kind']
   isExpanded: boolean
   isSelected: boolean
-  isMarked: boolean // in the multi-selection: drawn as the selected row
   isCursor: boolean
   isIgnored: boolean
   label: string
@@ -48,7 +46,7 @@ const RowClient: ClientModule<Props, State> = (props, surface) => {
     surface.state.cells.props = props
   }
   const { colors } = props
-  const isLit = props.isSelected || props.isMarked
+  const isLit = props.isSelected
 
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isLit ? colors.selection : undefined}>

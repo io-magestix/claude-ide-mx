@@ -837,3 +837,8 @@ export const fileDiff = (patch: string, path: string): string => {
 
   return ''
 }
+
+// `keys` with `key` added, or removed when already there (a folder opened or
+// closed).
+export const toggled = (keys: readonly string[], key: string): string[] =>
+  keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]

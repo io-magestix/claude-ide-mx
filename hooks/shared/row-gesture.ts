@@ -1,8 +1,7 @@
 import type { ClientPointerEvent, ClientSurface } from 'claude-code'
 
 // The click gesture of a row Client (Explorer's tree rows, Git's branch rows):
-// a left down and up on one part of the row posts `{ hit }` with the
-// `ctrl`/`shift` flags of the down; a second left down within DOUBLE_MS of
+// a left down and up on one part of the row posts `{ hit }`; a second left down within DOUBLE_MS of
 // the first posts `{ hit: 'double' }` instead, and its up posts nothing. The
 // arrow only toggles: a down on it closes any open window and never counts
 // toward a double, and a release across the arrow edge is no click.
@@ -21,13 +20,11 @@ type RowGestureOptions<H extends string> = {
 }
 
 // Mutable cells kept by one row's listener: the part a left button went down
-// on (and its flags), whether a first click's window is still open (and what
+// on, whether a first click's window is still open (and what
 // closes it), and whether the gesture under way is a double-click's second
 // down.
 type Cells<H> = {
   down?: H
-  ctrl?: true
-  shift?: true
   isArmed: boolean
   disarm?: () => void
   isDouble: boolean
@@ -76,8 +73,6 @@ const point = <H extends string>(
       return
     }
     cells.down = hitAt(event.x, event.y)
-    cells.ctrl = event.ctrl
-    cells.shift = event.shift
     if (cells.down === undefined) return
     // The arrow only toggles: two quick clicks on it open and close the dir.
     if (isArrow(cells.down)) {
@@ -109,7 +104,6 @@ const point = <H extends string>(
     // Released off the row, or across the arrow edge: no click.
     const up = hitAt(event.x, event.y)
     if (up === undefined || isArrow(up) !== isArrow(down)) return
-    const flags = { ...(cells.ctrl ? { ctrl: true } : {}), ...(cells.shift ? { shift: true } : {}) }
-    surface.post({ hit: down, ...flags })
+    surface.post({ hit: down })
   }
 }

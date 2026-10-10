@@ -29,17 +29,13 @@ export type ExplorerState = {
   previewOffset: number // first preview line shown
   previewLeft?: number // first preview column shown (horizontal bar); reset with previewOffset
   previewRaw?: boolean // the selected file shown as source instead of rendered (the view chip: svg, markdown); reset with previewOffset
-  deleting?: string // the file or dir the delete bar asks about; cleared by its `delete` or `cancel`
-  deletingMany?: string[] // the marked paths the delete bar asks about (2+ marked when it opened); cleared with `deleting`
-  marked?: string[] // the multi-selection (ctrl/shift-click, the mark cell, the `Mark` button); absent or empty: only `selected`
   edit?: {
     path: string // the file open in the Edit section
-    baseMtime?: number // its mtime when loaded or last saved; absent for a new file
-    isNew?: boolean // the file does not exist yet: created on first save
+    baseMtime?: number // its mtime when loaded or last saved
     hasDraft?: boolean // a draft file holds unsaved text for this path
     version: number // bumped to reload the buffer; chunks and drafts of an older one are dropped
     conflict?: 'disk' | 'changed' // `disk`: a save found the file changed; `changed`: Claude changed it under a dirty buffer
-    confirm?: 'select' | 'close' | 'mode' | 'pane' | 'new' // the unsaved-changes bar and what it was asked for
+    confirm?: 'select' | 'close' | 'mode' | 'pane' // the unsaved-changes bar and what it was asked for
     pending?: string // the path to select (`new`: the dir to name a file in) once the unsaved-changes bar is answered
   }
   split?: { tree?: number; panels?: number } // dragged sizes as fractions: Files' width (absent 0.35); the split pane's Explorer height (absent 0.7)
