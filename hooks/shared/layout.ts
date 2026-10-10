@@ -74,9 +74,12 @@ export const gitKeyOf = (key: string | undefined): string | undefined =>
 
 // Shared by the two panels' hooks (module state, reset by a reload and set
 // again by the next drawing): the window's columns as `/ide-panels` last saw
-// them and the rows of Git's half as the split pane last drew it.
+// them, the rows of Git's half as the split pane last drew it, and the
+// columns of Git's Branches as it last drew them (0: not drawn, outside a
+// repo), which the Explorer's Files takes.
 export const seat = {
   windowColumns: 0,
   gitTop: 0,
   gitRows: 0,
+  sideCols: 0,
 }

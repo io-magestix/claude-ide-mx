@@ -2959,7 +2959,35 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await firstRow(ui)).not.toBe(top)
   })
 
+  test(`${surface}: Files is as wide as Branches; dragging either moves both, the release saves Git's`, async ($, on) => {
+    const store = new Map<string, unknown>()
+    const ui = await mountSplit($, on, store)
+    const cells = async (key: string) => ((await ui.find({ key }))?.props.props as { cells?: number } | undefined)?.cells
+    const side = await cells('git/split:side')
+    expect(side).toBeDefined()
+    expect(await cells('split:tree')).toBe(side)
 
+    await ui.pointer({ type: 'down', button: 'left', x: 0, y: 3, in: 'split:tree' })
+    await ui.pointer({ type: 'move', button: 'left', x: 10, y: 3, in: 'split:tree' })
+    expect(await cells('git/split:side')).toBe((side ?? 0) + 10)
+    expect(await cells('split:tree')).toBe((side ?? 0) + 10)
+    await ui.pointer({ type: 'up', button: 'left', x: 0, y: 3, in: 'split:tree' })
+    expect((store.get('layout:git') as { side?: number }).side).toBeDefined()
+    expect(store.has('layout:explorer')).toBe(false)
+
+    await ui.pointer({ type: 'down', button: 'left', x: 0, y: 3, in: 'git/split:side' })
+    await ui.pointer({ type: 'move', button: 'left', x: -5, y: 3, in: 'git/split:side' })
+    // the seam moved under the pointer: the release is where the grab now is
+    await ui.pointer({ type: 'up', button: 'left', x: 0, y: 3, in: 'git/split:side' })
+    expect(await cells('split:tree')).toBe((side ?? 0) + 5)
+  })
+
+  test(`${surface}: Collapse All and Expand All sit at the two ends of the row under each tree`, async ($, on) => {
+    const ui = await mountSplit($, on)
+    for (const key of ['tree:actions', 'git/branches:actions']) {
+      expect((await ui.find({ key }))?.props.justifyContent).toBe('space-between')
+    }
+  })
 }
 
 // ------------------------------------------------------------ Repo or none

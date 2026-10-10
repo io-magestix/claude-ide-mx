@@ -871,8 +871,10 @@ export const register = (on: On, options?: PluginOptions): void => {
 
   // A scrollbar dragged: the window moves, the selection stays (as the wheel).
   on('ui.message', { requestId: [PANE, SPLIT_PANE] }, async ($, e) => {
-    // In the split pane the Explorer's hook passes on only Git's keys (`git/...`).
-    const element = e.requestId === SPLIT_PANE ? gitKeyOf(e.element) : e.element
+    // In the split pane the Explorer's hook passes on only Git's keys (`git/...`),
+    // and its Files splitter, which moves Branches' (Files is as wide).
+    const element =
+      e.requestId !== SPLIT_PANE ? e.element : e.element === 'split:tree' ? 'split:side' : gitKeyOf(e.element)
     if (element === undefined) return {}
     const data = e.data as { offset?: unknown; start?: unknown; delta?: unknown; done?: unknown } | null
     if (element === 'dots' || element === 'shas') {
@@ -979,6 +981,8 @@ export const register = (on: On, options?: PluginOptions): void => {
     const Client = 'Client' in elements ? elements.Client : undefined
     host = e.requestId === SPLIT_PANE ? SPLIT_PANE : PANE
     const isSplit = host === SPLIT_PANE
+    // Set again below once Branches' width is known (not outside a repo).
+    if (isSplit) seat.sideCols = 0
     const bodyRows = isSplit ? seat.gitRows : e.props.scroll.bodyRows
     const own = (tree: RenderElement): RenderElement => (isSplit ? prefixKeys(tree, GIT_PREFIX) : tree)
     // The hash Client (dots and hashes, and so the hover card and the hash
@@ -1091,6 +1095,8 @@ export const register = (on: On, options?: PluginOptions): void => {
     // Branches' width (Overview).
     const split = state.split ?? storedLayout ?? {}
     const sideCols = splitAt(columns, split.side ?? (isWide ? SPLIT.sideWide : SPLIT.sideNarrow), MIN_COLS)
+    // The Explorer's Files, drawn after this half, takes the same width.
+    if (isSplit) seat.sideCols = sideCols
     // Commits' height; Info takes the rest of the right column (Overview).
     const topRows = Math.max(3, splitAt(area, 1 - (split.info ?? SPLIT.info), MIN_ROWS))
     // Files' width (Change Log).
@@ -1528,9 +1534,9 @@ export const register = (on: On, options?: PluginOptions): void => {
       {titled('title:branches', 'Branches')}
       {hbar('hb:branches', branchWide, branchVisible, branchLeft, branchFrameRows - BAR, sideCols - 2 - BAR)}
       </Box>
-      {/* Under Branches' frame: every folder closed, or every folder opened;
-          cut at the right end on a narrow Branches. */}
-      <Box key="branches:actions" flexDirection="row" gap={4} height={1} overflow="hidden">
+      {/* Under Branches' frame: every folder closed on the left, every folder
+          opened on the right; cut at the right end on a narrow Branches. */}
+      <Box key="branches:actions" flexDirection="row" justifyContent="space-between" gap={4} height={1} overflow="hidden">
         <Box flexShrink={0}>
         {Btn(elements, t, {
           key: 'collapse-all',

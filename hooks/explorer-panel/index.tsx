@@ -2220,6 +2220,11 @@ export const register = (on: On, options?: PluginOptions): void => {
 
       return {}
     }
+    if (e.element === 'split:tree' && e.requestId === SPLIT_PANE && seat.sideCols > 0) {
+      // Files follows Branches' width in the split pane: Git takes the drag
+      // as one of Branches' splitter (same columns, same start).
+      return next(e)
+    }
     if (e.element === 'split:tree') {
       // The splitter dragged: Files' new width is where it started plus the
       // pointer's travel, kept as a fraction so a resize keeps it.
@@ -2335,7 +2340,10 @@ export const register = (on: On, options?: PluginOptions): void => {
     const border = { borderStyle: 'round', borderColor: accentBorder ? t.accent : t.border } as const
     // Rows inside a section's frame.
     const innerRows = sectionRows - 2
-    const treeCols = splitAt(e.props.bodyColumns, state.split?.tree ?? 0.35, MIN_COLS)
+    // In the split pane Files is as wide as Git's Branches below it (drawn
+    // first, by `next(e)`); else, or outside a repo, its own fraction.
+    const treeCols =
+      isSplit && seat.sideCols > 0 ? seat.sideCols : splitAt(e.props.bodyColumns, state.split?.tree ?? 0.35, MIN_COLS)
     // Files: its frame over the Collapse All / Expand All row. Where rows are
     // row clients they keep their whole label and scroll sideways under a
     // horizontal bar (which takes the frame's last inner row) once the widest
@@ -2973,9 +2981,9 @@ export const register = (on: On, options?: PluginOptions): void => {
           {titled('title:files', 'Files')}
           {hbar('hb:tree', treeWide, treeVisible, treeLeft, treeCols - 2 - BAR, treeFrameRows - BAR)}
           </Box>
-          {/* Under Files' frame: every dir closed, or every dir opened; cut
-              at the right end on a narrow Files. */}
-          <Box key="tree:actions" flexDirection="row" gap={4} height={1} overflow="hidden">
+          {/* Under Files' frame: every dir closed on the left, every dir
+              opened on the right; cut at the right end on a narrow Files. */}
+          <Box key="tree:actions" flexDirection="row" justifyContent="space-between" gap={4} height={1} overflow="hidden">
             <Box flexShrink={0}>{btn('collapse-all', 'Collapse All', 'secondary', () => void collapseAll($))}</Box>
             <Box flexShrink={0}>{btn('expand-all', 'Expand All', 'secondary', () => void expandAll($))}</Box>
           </Box>
