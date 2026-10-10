@@ -418,6 +418,61 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(lookups()).toBe(seen)
   })
 
+  // Changes made outside Claude: the watch looks every 2 s while the pane is up.
+  const watched = async ($: Engine, on: On, answer: (argv: readonly string[]) => ReturnType<typeof result> | undefined) => {
+    mock.store(on)
+    const clock = mock.clock(on)
+    on('ui.panes', () => ({ value: [{ id: 'ide-git', isFocused: true }] as never }))
+    const calls: string[][] = []
+    fake(on, calls, true, LOG, { name: 'main' }, STATUS, 0, answer)
+    await $.session.start(start(surface))
+    const ui = await $.ui.mount({
+      plugin: PLUGIN,
+      surface,
+      component: 'Pane',
+      props: props(120),
+      requestId: 'ide-git',
+      viewport: VIEWPORT,
+    })
+
+    return { ui, clock, calls }
+  }
+
+  test(`${surface}: a commit or checkout outside Claude reads the repo again after the next look`, async ($, on) => {
+    let refs = 'aaa HEAD\naaa refs/heads/main\n'
+    const { ui, clock, calls } = await watched($, on, argv => (argv[1] === 'show-ref' ? result(refs) : undefined))
+    const logs = () => calls.filter(a => a[1] === 'log').length
+    await ui.find({ key: 'all' })
+    const drawn = logs()
+    expect(drawn).toBeGreaterThan(0)
+    // a look reads HEAD and every ref
+    expect(calls).toContainEqual(['git', 'show-ref', '--head'])
+
+    // nothing moved: nothing read again
+    await clock.advance(2000)
+    await ui.find({ key: 'all' })
+    expect(logs()).toBe(drawn)
+
+    refs = 'bbb HEAD\nbbb refs/heads/main\n'
+    await clock.advance(2000)
+    await ui.find({ key: 'all' })
+    expect(logs()).toBeGreaterThan(drawn)
+  })
+
+  test(`${surface}: files changed outside Claude move the counts after the next look`, async ($, on) => {
+    let tree = STATUS
+    const { ui, clock, calls } = await watched($, on, argv => (argv[1] === 'status' ? result(tree) : undefined))
+    for (const count of ['+1', '~1', '-1']) expect(await ui.find({ type: 'Text', text: count })).toBeDefined()
+    const logs = () => calls.filter(a => a[1] === 'log').length
+    const drawn = logs()
+
+    tree = [' M b.txt', ' M d.txt', ''].join('\0')
+    await clock.advance(2000)
+    for (const count of ['+0', '~2', '-0']) expect(await ui.find({ type: 'Text', text: count })).toBeDefined()
+    // the commits stay as read
+    expect(logs()).toBe(drawn)
+  })
+
   test(`${surface}: an aborted root lookup is not cached, a retry recovers`, async ($, on) => {
     mock.store(on)
     const clock = mock.clock(on)

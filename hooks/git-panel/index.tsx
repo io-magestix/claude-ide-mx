@@ -17,6 +17,8 @@ import {
   GIT_PANE,
   branchTree,
   headNameArgv,
+  headRefArgv,
+  refsArgv,
   copyTextOf,
   remoteArgv,
   remoteSummary,
@@ -227,8 +229,10 @@ const settingsCancel = async ($: EngineInterface): Promise<void> => {
   await update($, settingsUi, () => ({}))
 }
 
-// Git output is cached here, not in $.state; Bash, fetch, pull and push clear it;
-// Write/Edit/NotebookEdit drop the status, show and change entries (`touched`).
+// Git output is cached here, not in $.state; Bash, fetch, pull, push and a
+// moved ref seen by the watch clear it; Write/Edit/NotebookEdit and a working
+// tree change seen by the watch drop the status, show and change entries
+// (`touched`).
 let repoRoot: string | null | undefined
 let branchCache: Branch[] | undefined
 let statusCache: Change[] | undefined
@@ -318,6 +322,7 @@ const loadLayout = async ($: EngineInterface): Promise<void> => {
 }
 
 const clear = (): void => {
+  seen = undefined
   repoRoot = undefined
   branchCache = undefined
   statusCache = undefined
@@ -342,7 +347,9 @@ const run = async (
   ok: readonly number[] = [0],
 ): Promise<string | undefined> => {
   try {
-    const ran = await $.process.run(argv, { cwd, timeoutMs: 15000 })
+    // Read-only: a status refreshing the index takes no lock from the person's
+    // own git commands (the watch runs one every 2 s).
+    const ran = await $.process.run(argv, { cwd, env: { GIT_OPTIONAL_LOCKS: '0' }, timeoutMs: 15000 })
 
     return ok.includes(ran.exitCode) ? ran.stdout : undefined
   } catch {
@@ -546,11 +553,76 @@ const remote = async ($: EngineInterface, action: RemoteAction): Promise<void> =
 }
 
 const touched = ($: EngineInterface): void => {
-  statusCache = undefined
+  dropTree()
+  $.ui.invalidate('ui.render')
+}
+
+// The working tree's caches; `tree`, a status already read, fills it again.
+const dropTree = (tree?: string): void => {
+  seen = undefined
+  statusCache = tree === undefined ? undefined : parseStatus(tree)
   showCache.clear()
   changeCache.clear()
   hasHead = undefined
-  $.ui.invalidate('ui.render')
+}
+
+// Changes made outside Claude (a commit, checkout, stash or fetch in a shell,
+// an editor saving files) show without a press: while a panel is up the repo
+// is looked at every GIT_LOOK_MS. Claude's own tool calls clear the caches at
+// once (the tool.call hooks).
+let gitWatch: { cancel: () => void } | undefined
+const GIT_LOOK_MS = 2000
+// What the cached views were read against: the ref HEAD names, every ref's sha
+// and the working tree's status. Dropped with the caches; the drawing that
+// fills them again takes it first, so a change after it is the watch's.
+type Look = { refs: string; tree: string }
+let seen: Look | undefined
+
+// One look; undefined when a call failed or was aborted.
+const lookRepo = async ($: EngineInterface, root: string): Promise<Look | undefined> => {
+  const before = threw
+  const [head, refs, tree] = await Promise.all([
+    run($, root, headRefArgv(), [0, 1]),
+    run($, root, refsArgv(), [0, 1]),
+    run($, root, statusArgv()),
+  ])
+  if (threw !== before || head === undefined || refs === undefined || tree === undefined) return undefined
+
+  return { refs: head + '\0' + refs, tree }
+}
+
+const watchGit = ($: EngineInterface): void => {
+  if (gitWatch !== undefined) return
+  try {
+    gitWatch = $.clock.after(GIT_LOOK_MS, async () => {
+      gitWatch = undefined
+      try {
+        // Both panes closed: the next drawing watches again.
+        if (!(await $.ui.panes()).some(pane => pane.id === PANE || pane.id === SPLIT_PANE)) return
+        const root = repoRoot
+        // A fetch, pull or push clears everything when it ends.
+        const now = busy === undefined && seen !== undefined && typeof root === 'string' ? await lookRepo($, root) : undefined
+        // `seen` gone meanwhile: a hook cleared the caches, the drawing looks.
+        if (now !== undefined && seen !== undefined && root === repoRoot) {
+          if (now.refs !== seen.refs) {
+            clear()
+            statusCache = parseStatus(now.tree)
+            seen = now
+            $.ui.invalidate('ui.render')
+          } else if (now.tree !== seen.tree) {
+            dropTree(now.tree)
+            seen = now
+            $.ui.invalidate('ui.render')
+          }
+        }
+        watchGit($)
+      } catch {
+        // no surface to ask: the next drawing watches again
+      }
+    })
+  } catch {
+    // no clock here: the drawing goes on without the watch
+  }
 }
 
 // A full ref (or a folder's prefix) copied by a double-click on a Branches row.
@@ -591,7 +663,7 @@ const selectCommit = (s: GitState, sha: string): GitState => ({
 
 export const register = (on: On, options?: PluginOptions): void => {
   pluginOptions = options
-  // Refresh after Bash may have run git; never denies or rewrites the call.
+  // Clear the caches after Bash may have run git; never denies or rewrites the call.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
     clear()
@@ -975,6 +1047,16 @@ export const register = (on: On, options?: PluginOptions): void => {
       )
     }
 
+    // What the views are read against, taken before them (its status fills
+    // the status cache); the watch compares its looks with it.
+    if (seen === undefined) {
+      const now = await lookRepo($, root)
+      if (now !== undefined) {
+        seen = now
+        statusCache ??= parseStatus(now.tree)
+      }
+    }
+    watchGit($)
     const columns = e.props.bodyColumns
     const home = await $.env.get('HOME')
     const changes = await statusOf($, cwd)

@@ -608,6 +608,12 @@ export const remoteSummary = (
 // --abbrev-ref HEAD` fails); fails when detached and outside a repo.
 export const headNameArgv = (): string[] => ['git', 'symbolic-ref', '--short', '-q', 'HEAD']
 
+// What the watch compares between looks: the ref HEAD names (exit 1 when
+// detached), and HEAD's sha with every ref's (branches, remotes, tags, the
+// stash; exit 1 before the first commit).
+export const headRefArgv = (): string[] => ['git', 'symbolic-ref', '-q', 'HEAD']
+export const refsArgv = (): string[] => ['git', 'show-ref', '--head']
+
 // `normal`: a dir untracked as a whole is one `?? dir/` entry (the
 // Explorer's marks); `all`: every file in it (Change Log, the counts).
 export const statusArgv = (untracked: 'all' | 'normal' = 'all'): string[] => [
