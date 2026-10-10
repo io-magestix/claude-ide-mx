@@ -54,6 +54,9 @@ const FILES: Record<string, string> = {
 
 // mtimes `fs.write` set; a path not here has the fixed one.
 const MTIMES: Record<string, number> = {}
+// Dir mtimes, moved by a test that changes a listing outside Claude; a dir
+// not here has the fixed one.
+const DIR_MTIMES: Record<string, number> = {}
 let clock = 1_800_000_000_000
 
 // `grep` output per cwd, for the Unity GUID index.
@@ -136,6 +139,9 @@ const fake = (
   })
   on('fs.stat', (_$, e) => {
     const text = FILES[e.path]
+    if (text === undefined && TREE[e.path] !== undefined) {
+      return { value: { kind: 'dir' as const, size: 0, mtimeMs: DIR_MTIMES[e.path] ?? 1_700_000_000_000, isLink: false } }
+    }
     if (text === undefined) throw new Error('ENOENT ' + e.path)
 
     return {
@@ -908,7 +914,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   // The test's own bottom hook: the tool "runs" and reports success.
   const done = () => ({ result: {}, text: '' }) as never
 
-  test(`${surface}: a Write of a new file shows its row without refresh`, async ($, on) => {
+  test(`${surface}: a Write of a new file shows its row at once`, async ($, on) => {
     mock.store(on)
     fake(on)
     on('tool.call', done)
@@ -942,6 +948,71 @@ for (const surface of ['terminal', 'desktop'] as const) {
     TREE['/proj'] = (TREE['/proj'] ?? []).filter(x => x.name !== 'fresh.txt')
   })
 
+  // Changes made outside Claude: the disk watch looks every 2 s while the
+  // pane is up.
+  const watched = async ($: Engine, on: On) => {
+    mock.store(on)
+    on('ui.panes', () => ({ value: [{ id: 'ide-explorer', isFocused: true }] as never }))
+    const clock = mock.clock(on)
+    fake(on)
+    on('tool.call', done)
+    await $.session.start(start(surface))
+
+    return { ui: await mount($), clock }
+  }
+
+  test(`${surface}: a file added and one removed outside Claude show after the next look`, async ($, on) => {
+    const { ui, clock } = await watched($, on)
+    await ui.press({ key: 'row:/proj/src' })
+    await ui.press({ key: 'row:/proj/src' })
+    expect(await ui.find({ key: 'row:/proj/src/main.ts' })).toBeDefined()
+    try {
+      TREE['/proj/src'] = [entry('other.ts', 'file', 3)]
+      // the dir's mtime has not moved: the listing is not read again
+      await clock.advance(2000)
+      expect(await ui.find({ key: 'row:/proj/src/other.ts' })).toBeUndefined()
+
+      DIR_MTIMES['/proj/src'] = 1_900_000_000_000
+      await clock.advance(2000)
+      expect(await ui.find({ key: 'row:/proj/src/other.ts' })).toBeDefined()
+      expect(await ui.find({ key: 'row:/proj/src/main.ts' })).toBeUndefined()
+    } finally {
+      TREE['/proj/src'] = [entry('main.ts', 'file', 40)]
+      delete DIR_MTIMES['/proj/src']
+    }
+  })
+
+  test(`${surface}: git work outside Claude moves the change marks after the next look`, async ($, on) => {
+    STATUS[CWD] = ''
+    try {
+      const { ui, clock } = await watched($, on)
+      const markOf = async (path: string) =>
+        ((await ui.find({ key: 'item:' + path }))?.props.props as { change?: string } | undefined)?.change
+      expect(await markOf('/proj/notes.txt')).toBeUndefined()
+
+      STATUS[CWD] = ' M notes.txt\0'
+      await clock.advance(2000)
+      expect(await markOf('/proj/notes.txt')).toBe('*')
+    } finally {
+      delete STATUS[CWD]
+    }
+  })
+
+  test(`${surface}: the previewed file changed outside Claude is drawn again`, async ($, on) => {
+    const { ui, clock } = await watched($, on)
+    await ui.press({ key: 'row:/proj/notes.txt' })
+    expect((await ui.find({ type: 'Code' }))?.text).toContain('hello notes')
+    try {
+      FILES['/proj/notes.txt'] = 'changed by hand\n'
+      MTIMES['/proj/notes.txt'] = 1_900_000_000_000
+      await clock.advance(2000)
+      expect((await ui.find({ type: 'Code' }))?.text).toContain('changed by hand')
+    } finally {
+      FILES['/proj/notes.txt'] = 'hello notes\n'
+      delete MTIMES['/proj/notes.txt']
+    }
+  })
+
   test(`${surface}: no Button carries a hotkey; the panel tabs switch by click`, async ($, on) => {
     mock.store(on)
     fake(on)
@@ -949,7 +1020,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mount($)
 
     expect(await ui.find({ key: 'mode' })).toBeUndefined()
-    expect(await ui.find({ key: 'refresh' })).toBeDefined()
+    expect(await ui.find({ key: 'refresh' })).toBeUndefined()
     for (const b of await ui.findAll({ type: 'Button' })) expect(b.props.hotkey).toBeUndefined()
     expect(await isActiveTab(ui, surface, 'files')).toBe(true)
     expect(await isActiveTab(ui, surface, 'unity')).toBe(false)
@@ -1313,6 +1384,27 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'ask:overwrite' })).toBeUndefined()
   })
 
+  test(`${surface}: the edited file changed outside Claude reloads a clean buffer, and asks over a dirty one`, async ($, on) => {
+    on('ui.panes', () => ({ value: [{ id: 'ide-explorer', isFocused: true }] as never }))
+    const watch = mock.clock(on)
+    const { ui, settle, text } = await editing($, on, surface, '/ed9-' + surface, { 'a.ts': 'one\n' })
+    const file = '/ed9-' + surface + '/a.ts'
+    MTIMES[file] = 1_900_000_000_000
+    FILES[file] = 'theirs\n'
+    await watch.advance(2000)
+    await settle()
+    expect(await text()).toContain('theirs')
+    expect(await ui.find({ key: 'ask:overwrite' })).toBeUndefined()
+
+    await ui.key({ key: 'x', in: 'editor' })
+    await settle()
+    MTIMES[file] = 1_900_000_000_001
+    FILES[file] = 'again\n'
+    await watch.advance(2000)
+    expect(await ui.find({ type: 'Text', text: /Changed on disk while open: a\.ts/ })).toBeDefined()
+    expect(await ui.find({ key: 'ask:overwrite' })).toBeDefined()
+  })
+
   test(`${surface}: selecting another file while dirty asks first`, async ($, on) => {
     const { ui, settle } = await editing($, on, surface, '/ed4', { 'a.ts': 'one\n', 'b.ts': 'two\n' })
     await ui.key({ key: 'x', in: 'editor' })
@@ -1629,13 +1721,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const header = await ui.findAll({ type: 'Box' })
     // one title row: the title, a divider, the tabs, a divider, the actions
     expect(controls(header.find(box => box.key === 'header:tabs'))).toEqual(
-      expect.arrayContaining(['tab:files', 'tab:unity', 'header:actions', 'refresh']),
+      expect.arrayContaining(['tab:files', 'tab:unity', 'header:actions', 'copy-name']),
     )
     expect((await ui.findAll({ type: 'Text', text: '|' })).length).toBe(2)
     const actions = controls(header.find(box => box.key === 'header:actions'))
-    expect(actions).toContain('refresh')
-    // no marks, no new file, no delete
-    for (const key of ['mark', 'new', 'delete']) expect(actions).not.toContain(key)
+    // no refresh, no marks, no new file, no delete
+    for (const key of ['refresh', 'mark', 'new', 'delete']) expect(actions).not.toContain(key)
 
     // the unsaved-changes bar, over a mode switch
     await ui.key({ key: 'x', in: 'editor' })
@@ -2194,6 +2285,20 @@ test('terminal: no converter: metadata and an install hint', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: 'install ImageMagick to preview jpg' })).toBeDefined()
 })
 
+test('terminal: a converter installed later is found by the disk watch', async ($, on) => {
+  on('ui.panes', () => ({ value: [{ id: 'ide-explorer', isFocused: true }] as never }))
+  const { ui, clock } = await images($, on, 'terminal')
+  await ui.press({ key: 'row:/img/photo.jpg' })
+  expect(await ui.find({ type: 'Text', text: 'install ImageMagick to preview jpg' })).toBeDefined()
+
+  TOOLS.add('magick')
+  // looked for again every 15th look (30 s)
+  for (let i = 0; i < 14; i++) await clock.advance(2000)
+  expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  await clock.advance(2000)
+  expect((await ui.find({ type: 'Image' }))?.props.source).toMatchObject({ file: convertedPath('/dev/shm', '/img/photo.jpg', MTIME) })
+})
+
 test('desktop: an SVG draws as Svg, a PNG as metadata', async ($, on) => {
   const { ui, calls } = await images($, on, 'desktop', ['magick'])
   await ui.press({ key: 'row:/img/logo.svg' })
@@ -2428,8 +2533,6 @@ test('terminal: a Bash call keeps converted pictures (keyed by version); refresh
   expect((await ui.find({ type: 'Image' }))?.props.source).toMatchObject({ file: convertedPath('/dev/shm', '/img/photo.jpg', MTIME) })
   // nothing removed: a cached markdown view may still draw it
   expect(calls.filter(argv => argv[0] === 'rm')).toEqual([])
-  await ui.press({ key: 'refresh' })
-  expect(converts(calls)).toHaveLength(2)
 })
 
 test('terminal: a changed picture is converted again, the older PNG kept until the session ends', async ($, on) => {
@@ -2487,13 +2590,17 @@ test('terminal: a PNG past the read cap is sized from its header through od', as
 })
 
 test('desktop: an Svg is no taller than the room under its info row', async ($, on) => {
-  const { ui } = await images($, on, 'desktop', ['magick'])
+  on('ui.panes', () => ({ value: [{ id: 'ide-explorer', isFocused: true }] as never }))
+  const { ui, clock } = await images($, on, 'desktop', ['magick'])
   await ui.press({ key: 'row:/img/logo.svg' })
   // its own 32 px fits
   expect((await ui.find({ type: 'Svg' }))?.props.height).toBe(32)
   FILES['/img/tall.svg'] = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="4000"><rect width="40" height="4000"/></svg>'
   TREE[IMG] = [...TREE[IMG]!, entry('tall.svg', 'file', FILES['/img/tall.svg'].length)]
-  await ui.press({ key: 'refresh' })
+  // added outside Claude: the disk watch lists it again
+  DIR_MTIMES[IMG] = MTIME + 1
+  await clock.advance(2000)
+  delete DIR_MTIMES[IMG]
   await ui.press({ key: 'row:/img/tall.svg' })
   const height = (await ui.find({ type: 'Svg' }))?.props.height as number
   expect(height).toBeLessThan(4000)
@@ -2819,7 +2926,6 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ key: 'split:git' }))?.props.height).toBe(12)
     expect(await ui.find({ key: 'split:panels' })).toBeDefined()
     expect(await ui.find({ key: 'tab:files' })).toBeDefined()
-    expect(await ui.find({ key: 'refresh' })).toBeDefined()
     expect(await ui.find({ key: 'git/fetch' })).toBeDefined()
     // the root, branch and counts: only Git's footer
     expect(await ui.find({ key: 'git/footer:counts' })).toBeDefined()

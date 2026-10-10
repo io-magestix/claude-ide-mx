@@ -2,6 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   changeMarks,
+  changedEntries,
+  changedMarks,
   clip,
   dirsAbove,
   filters,
@@ -254,4 +256,35 @@ test('changeMarks: a toplevel of / ends its walk', () => {
 test('dirsAbove: the dirs between the root and a path, outermost first', () => {
   expect(dirsAbove('/p/a/b/c.ts', '/p')).toEqual(['/p/a', '/p/a/b'])
   expect(dirsAbove('/p/c.ts', '/p')).toEqual([])
+})
+
+test('changedEntries: added, removed and resized names; the same listing in another order is none', () => {
+  const before = [
+    { name: 'a.ts', kind: 'file' as const, size: 1 },
+    { name: 'b.ts', kind: 'file' as const, size: 2 },
+    { name: 'c', kind: 'dir' as const, size: 0 },
+  ]
+  expect(changedEntries(before, [...before].reverse())).toEqual([])
+  expect(
+    changedEntries(before, [
+      { name: 'a.ts', kind: 'file', size: 5 },
+      { name: 'c', kind: 'dir', size: 0 },
+      { name: 'd.ts', kind: 'file', size: 1 },
+    ]).sort(),
+  ).toEqual(['a.ts', 'b.ts', 'd.ts'])
+  expect(changedEntries([], [])).toEqual([])
+})
+
+test('changedMarks: the paths whose mark moved, dirs new as a whole included', () => {
+  const before = changeMarks([{ path: 'src/a.ts', kind: 'modified' }], '/repo')
+  expect(changedMarks(before, changeMarks([{ path: 'src/a.ts', kind: 'modified' }], '/repo'))).toEqual([])
+  const after = changeMarks(
+    [
+      { path: 'src/a.ts', kind: 'added' },
+      { path: 'docs/', kind: 'added' },
+    ],
+    '/repo',
+  )
+  expect(changedMarks(before, after).sort()).toEqual(['/repo/docs', '/repo/src/a.ts'])
+  expect(changedMarks(after, before).sort()).toEqual(['/repo/docs', '/repo/src/a.ts'])
 })

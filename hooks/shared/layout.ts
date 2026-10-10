@@ -24,7 +24,7 @@ const NO_REPO_ROWS = 2
 export const WINDOW_KEY = 'window:columns'
 
 // Every key of Git's half is prefixed, so its elements never share a key
-// with the Explorer's (`refresh`, `settings`, `header`, ...).
+// with the Explorer's (`copy-name`, `settings`, `header`, ...).
 export const GIT_PREFIX = 'git/'
 
 // The columns the split pane asks for in a window `window` columns wide.

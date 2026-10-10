@@ -256,3 +256,30 @@ export const changeMarks = (
 // The mark of `path`, if any: its own, else `+` inside a dir new as a whole.
 export const markOf = (path: string, marks: ChangeMarks): ChangeMark | undefined =>
   marks.paths.get(path) ?? (marks.newDirs.some(dir => path.startsWith(dir + '/')) ? '+' : undefined)
+
+// The names whose entry was added, removed or changed (kind or size) between
+// two listings of one dir; empty when nothing a drawing shows moved.
+export const changedEntries = (before: readonly Entry[], after: readonly Entry[]): string[] => {
+  const was = new Map(before.map(entry => [entry.name, entry]))
+  const now = new Map(after.map(entry => [entry.name, entry]))
+  const names = new Set<string>()
+  for (const [name, entry] of was) {
+    const other = now.get(name)
+    if (other === undefined || other.kind !== entry.kind || other.size !== entry.size) names.add(name)
+  }
+  for (const name of now.keys()) if (!was.has(name)) names.add(name)
+
+  return [...names]
+}
+
+// The paths whose change mark differs between two looks at the working tree
+// (a dir untracked as a whole by its own path).
+export const changedMarks = (before: ChangeMarks, after: ChangeMarks): string[] => {
+  const paths = new Set<string>()
+  for (const [path, mark] of before.paths) if (after.paths.get(path) !== mark) paths.add(path)
+  for (const [path, mark] of after.paths) if (before.paths.get(path) !== mark) paths.add(path)
+  for (const dir of before.newDirs) if (!after.newDirs.includes(dir)) paths.add(dir)
+  for (const dir of after.newDirs) if (!before.newDirs.includes(dir)) paths.add(dir)
+
+  return [...paths]
+}

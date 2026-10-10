@@ -20,6 +20,8 @@ import {
   relativePath,
   window as windowOf,
   changeMarks,
+  changedEntries,
+  changedMarks,
   markOf,
 } from './tree'
 import type { ChangeMarks, Entry, Mode, Row } from './tree'
@@ -157,8 +159,12 @@ const explorer = atom<'ide-panes', 'explorer'>(
 
 // Listings and git-ignore results are cached here, not in $.state: they are
 // cheap to rebuild (render re-lists every expanded dir after a reload) and
-// $.state should stay small. `refresh` and the tool.call hook invalidate them.
+// $.state should stay small. The tool.call hooks and the disk watch
+// invalidate them.
 const listings = new Map<string, Entry[]>()
+// Each listed dir's mtime when it was listed (undefined: no stat), for the
+// disk watch.
+const dirStamps = new Map<string, number | undefined>()
 const ignored = new Set<string>()
 // Whether a root holds `ProjectSettings/ProjectVersion.txt`; checked in Unity
 // mode only.
@@ -332,7 +338,9 @@ const gitOut = async (
   argv: string[],
 ): Promise<string | undefined> => {
   try {
-    const ran = await $.process.run(argv, { cwd, timeoutMs: 15000 })
+    // Read-only: a status refreshing the index takes no lock from the person's
+    // own git commands (the disk watch runs one every 2 s).
+    const ran = await $.process.run(argv, { cwd, env: { GIT_OPTIONAL_LOCKS: '0' }, timeoutMs: 15000 })
 
     return ran.exitCode === 0 ? ran.stdout : undefined
   } catch {
@@ -407,6 +415,111 @@ const resetPanels = ($: EngineInterface): void => {
   $.clock.after(1, () => update($, explorer, s => ({ ...s, split: { ...s.split, panels: undefined } })))
 }
 
+// Changes made outside Claude (another editor, a shell, Unity, git by hand)
+// show without a press: while a panel is up the disk is looked at every
+// DISK_POLL_MS. Claude's own tool calls clear the caches at once (the
+// tool.call hooks).
+let diskWatch: { cancel: () => void } | undefined
+const DISK_POLL_MS = 2000
+// A converter missing when a picture asked for one is looked for again every
+// this many looks (30 s), until one is found.
+const TOOL_LOOKS = 15
+let diskLooks = 0
+// A picture found no converter: the watch looks for one again.
+let wantsTool = false
+// The previewed file and its mtime as the last drawing read it.
+let previewStamp: { path: string; mtime: number } | undefined
+// A save in flight: the file is written before `baseMtime` moves along.
+let saving = false
+
+const watchDisk = ($: EngineInterface): void => {
+  if (diskWatch !== undefined) return
+  try {
+    diskWatch = $.clock.after(DISK_POLL_MS, async () => {
+      diskWatch = undefined
+      try {
+        // Both panes closed: the next drawing watches again.
+        if (!(await paneIsOpen($, PANE, SPLIT_PANE))) return
+        if (await diskChanged($)) $.ui.invalidate('ui.render')
+        watchDisk($)
+      } catch {
+        // no surface to ask: the next drawing watches again
+      }
+    })
+  } catch {
+    // no clock here: the drawing goes on without the watch
+  }
+}
+
+// One look; true when a drawing would change. A listed dir whose mtime moved
+// is listed again, the previewed file's mtime moving redraws Preview, the
+// open editor checks its file (`checkDisk` writes the state itself), and a
+// changed branch or `git status` redraws the change marks.
+const diskChanged = async ($: EngineInterface): Promise<boolean> => {
+  let isChanged = false
+  const looked = await Promise.all(
+    [...listings.keys()].map(async dir => ({ dir, mtime: (await statOf($, dir))?.mtimeMs })),
+  )
+  for (const { dir, mtime } of looked) {
+    const before = listings.get(dir)
+    if (before === undefined || mtime === dirStamps.get(dir)) continue
+    listings.delete(dir)
+    for (const path of [...ignored]) if (parentOf(path) === dir) ignored.delete(path)
+    await ensureListed($, dir)
+    const names = changedEntries(before, listings.get(dir) ?? [])
+    if (names.length === 0) continue
+    isChanged = true
+    if (names.some(name => name.endsWith('.meta'))) indexes.clear()
+  }
+  if (isChanged) {
+    unityRoots.clear()
+    // an embedded image may have come or gone
+    mdCache.clear()
+  }
+  const state = await read($, explorer)
+  const shown = previewStamp
+  if (shown !== undefined && shown.path === state.selected) {
+    const mtime = (await statOf($, shown.path))?.mtimeMs
+    if (mtime !== shown.mtime) {
+      previewStamp = undefined
+      isChanged = true
+    }
+  }
+  if (state.edit !== undefined && !saving) await checkDisk($)
+  const root = await rootOf($, state)
+  const known = footers.get(root)
+  if (known?.branch !== undefined) {
+    footers.delete(root)
+    const now = await footerOf($, root)
+    // An aborted call left it blank: kept as it was.
+    if (!footers.has(root)) {
+      footers.set(root, known)
+    } else {
+      const paths = changedMarks(known.marks, now.marks)
+      if (now.branch !== known.branch || paths.length > 0) isChanged = true
+      // New ignore rules: every listed dir is checked again.
+      if (paths.some(path => nameOf(path) === '.gitignore')) {
+        listings.clear()
+        ignored.clear()
+      }
+      if (paths.some(path => path.endsWith('.meta'))) indexes.clear()
+    }
+  }
+  diskLooks += 1
+  if (wantsTool && diskLooks % TOOL_LOOKS === 0) {
+    const had = await toolsOf($)
+    const found = await detectTools($)
+    if (found.raster !== had.raster || found.svg !== had.svg) {
+      imageTool = Promise.resolve(found)
+      wantsTool = false
+      dropPictures()
+      isChanged = true
+    }
+  }
+
+  return isChanged
+}
+
 const modeKey = (root: string): string => 'explorer.mode:' + root
 // The section sizes, global (every root): the whole `split` object, written
 // when a splitter drag ends and read by session.start while `split` is unset.
@@ -414,6 +527,8 @@ const LAYOUT_KEY = 'layout:explorer'
 
 const ensureListed = async ($: EngineInterface, dir: string): Promise<void> => {
   if (listings.has(dir)) return
+  // Taken first: a change while listing moves it past this.
+  dirStamps.set(dir, (await statOf($, dir))?.mtimeMs)
   let entries: Entry[] = []
   try {
     const found = await $.fs.list(dir)
@@ -528,7 +643,7 @@ const buildIndex = async (
   return index
 }
 
-// Module cache (not $.state): rebuilt lazily after a reload or `refresh`.
+// Module cache (not $.state): rebuilt lazily after a reload or a `.meta` change.
 const indexes = new Map<string, Promise<Map<string, string>>>()
 
 const guidIndex = (
@@ -660,7 +775,7 @@ type ImageTools = { raster?: ConvertTool; svg?: ConvertTool; dir: string }
 let imageTool: Promise<ImageTools> | undefined
 // Image previews per surface kind, path and mtime (the load's promise, so
 // drawings while a conversion runs share it). Keys name the version, so
-// only `refresh`, the pane's close and the session's end clear it.
+// only a converter found later, the pane's close and the session's end clear it.
 const pictures = new Map<string, Promise<ImagePreview>>()
 // Every PNG converted (or written at `{out}`) this load: removed when the
 // pane closes or the session ends, never when a newer version replaces one
@@ -759,7 +874,8 @@ const removeConverted = async ($: EngineInterface, files: readonly string[], tim
   }
 }
 
-// Every preview cache: `refresh`, the blit probe's answer, the pane's close.
+// Every preview cache: a converter found later, the blit probe's answer, the
+// pane's close.
 const dropPictures = (): void => {
   pictures.clear()
   customCache.clear()
@@ -876,6 +992,7 @@ const makeImage = async (
       const tools = await toolsOf($)
       const tool = isSvg ? tools.svg : tools.raster
       if (tool === undefined) {
+        wantsTool = true
         made = { ...base, note: `install ImageMagick to preview ${ext(row.name)}` }
       } else {
         const out = convertedPath(tools.dir, row.path, mtime)
@@ -1044,7 +1161,7 @@ const followLink = async ($: EngineInterface, href: string): Promise<void> => {
 }
 
 // The repo toplevel a root's paths are named from (the root itself outside
-// a repo); `footerOf` fills it, `refresh` and `watchRepo` clear it.
+// a repo); `footerOf` fills it, `watchRepo` clears it.
 const toplevels = new Map<string, string>()
 
 const toplevelOf = async ($: EngineInterface, root: string): Promise<string> => {
@@ -1226,6 +1343,7 @@ const loadPreview = async (
   }
   try {
     const stat = await $.fs.stat(row.path)
+    previewStamp = { path: row.path, mtime: stat.mtimeMs }
     // The engine picks the renderer; `isRaw` shows a rendered one's source.
     const engine = engineOf(row.name, customEngines)
     // A custom engine reads the file itself: no size cap here.
@@ -1602,23 +1720,28 @@ const saveText = async (
 
     return
   }
+  saving = true
   try {
-    await $.fs.write(edit.path, text)
-  } catch (err) {
-    await toast($, `Save failed: ${err instanceof Error ? err.message : String(err)}`)
+    try {
+      await $.fs.write(edit.path, text)
+    } catch (err) {
+      await toast($, `Save failed: ${err instanceof Error ? err.message : String(err)}`)
 
-    return
+      return
+    }
+    const after = await statOf($, edit.path)
+    editing.saved = seq
+    editing.isDirty = false
+    await removeDraft($, edit.path)
+    dropFile(edit.path)
+    await patchEdit($, edit.version, {
+      baseMtime: after?.mtimeMs,
+      hasDraft: undefined,
+      conflict: undefined,
+    })
+  } finally {
+    saving = false
   }
-  const after = await statOf($, edit.path)
-  editing.saved = seq
-  editing.isDirty = false
-  await removeDraft($, edit.path)
-  dropFile(edit.path)
-  await patchEdit($, edit.version, {
-    baseMtime: after?.mtimeMs,
-    hasDraft: undefined,
-    conflict: undefined,
-  })
   if (edit.confirm !== undefined) await finish($, edit.confirm, edit.pending)
 }
 
@@ -1692,8 +1815,8 @@ const editorMessage = async (
   return { props: editorProps(after, (await themeNow($)).t) }
 }
 
-// After Claude touched files: a clean buffer reloads, a dirty one gets the
-// changed-on-disk bar. Our own saves move `baseMtime` along, so they pass.
+// After Claude touched files, or the disk watch looked: a clean buffer
+// reloads, a dirty one gets the changed-on-disk bar. Our own saves move `baseMtime` along, so they pass.
 const checkDisk = async ($: EngineInterface): Promise<void> => {
   const edit = (await read($, explorer)).edit
   if (edit === undefined || edit.baseMtime === undefined) return
@@ -1881,7 +2004,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     return ran
   })
 
-  // Refresh after Claude changes files; never denies or rewrites the call.
+  // Clear the caches after Claude changes files; never denies or rewrites the call.
   // One hook per tool: the validator refuses two unmatched tool.call hooks.
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
@@ -2130,8 +2253,9 @@ export const register = (on: On, options?: PluginOptions): void => {
     const below = isSplit ? await next(e) : undefined
     // Claude Code's theme (its accent from `/color` while one is set).
     const { t, accentBorder } = await themeNow($)
-    // The theme follows its sources while the panel is up.
+    // The theme and the disk are followed while the panel is up.
     watchTheme($)
+    watchDisk($)
     // The Settings values and sheet; the editor keymap follows the values
     // whichever panel's sheet changed them.
     const settingsNow = await read($, settings)
@@ -2574,9 +2698,10 @@ export const register = (on: On, options?: PluginOptions): void => {
 
     const own = (
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
-        {/* The title row: the title, the panel tabs and the actions, 2 cells
-            apart with a divider after the title and after the tabs, cut at the
-            right end on a narrow pane (kept for Settings and Exit). The active
+        {/* The title row: the title, the panel tabs and the actions (only
+            while a row is selected), 2 cells apart with a divider after the
+            title and before the actions, cut at the right end on a narrow pane
+            (kept for Settings and Exit). The active
             tab does nothing (a mode switch would close a clean editor and
             reset the scroll). */}
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
@@ -2601,37 +2726,22 @@ export const register = (on: On, options?: PluginOptions): void => {
                 onSelect: asleep((id: string) => (id === state.mode || !isMode(id) ? undefined : void setMode($, id))),
               })}
             </Box>
-            <Box flexShrink={0}>
-              <Text color={t.border}>|</Text>
-            </Box>
-            <Box key="header:actions" flexDirection="row" gap={2} flexShrink={0}>
-              {btn(
-                'refresh',
-                'Refresh',
-                'ghost',
-                () => {
-                  listings.clear()
-                  dropPictures()
-                  // a converter installed since is found
-                  imageTool = undefined
-                  footers.clear()
-                  ignored.clear()
-                  unityRoots.clear()
-                  indexes.clear()
-                  toplevels.clear()
-                  $.ui.invalidate('ui.render')
-                },
-              )}
-              {canEdit &&
-                edit === undefined &&
-                (preview?.type === 'code' || preview?.type === 'markdown') &&
-                preview.generated !== true &&
-                btn('edit', 'Edit', 'secondary', () => void startEdit($, preview.path))}
-              {current !== undefined &&
-                btn('copy-name', 'Copy Name', 'ghost', () => void copyText($, nameOf(state.cursor ?? current.path), surface))}
-              {current !== undefined &&
-                btn('copy-path', 'Copy Full Path', 'ghost', () => void copyText($, state.cursor ?? current.path, surface))}
-            </Box>
+            {current !== undefined && (
+              <Box flexShrink={0}>
+                <Text color={t.border}>|</Text>
+              </Box>
+            )}
+            {current !== undefined && (
+              <Box key="header:actions" flexDirection="row" gap={2} flexShrink={0}>
+                {canEdit &&
+                  edit === undefined &&
+                  (preview?.type === 'code' || preview?.type === 'markdown') &&
+                  preview.generated !== true &&
+                  btn('edit', 'Edit', 'secondary', () => void startEdit($, preview.path))}
+                {btn('copy-name', 'Copy Name', 'ghost', () => void copyText($, nameOf(state.cursor ?? current.path), surface))}
+                {btn('copy-path', 'Copy Full Path', 'ghost', () => void copyText($, state.cursor ?? current.path, surface))}
+              </Box>
+            )}
             {isNotUnity && (
               <Box flexShrink={0}>
                 <Text color={t.muted}>not a Unity project</Text>
@@ -2653,7 +2763,7 @@ export const register = (on: On, options?: PluginOptions): void => {
           ? askLine(
               t.warning,
               '⚠',
-              (edit.conflict === 'disk' ? 'Changed on disk since loaded: ' : 'Changed on disk by Claude: ') +
+              (edit.conflict === 'disk' ? 'Changed on disk since loaded: ' : 'Changed on disk while open: ') +
                 nameOf(edit.path),
               [
                 btn('ask:overwrite', 'Overwrite', 'danger', () => sendCommand($, 'overwrite')),
