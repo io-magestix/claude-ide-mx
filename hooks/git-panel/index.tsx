@@ -7,7 +7,7 @@ import { window as windowOf } from '../explorer-panel/tree'
 import { sliceCols, sliceDiffCols, widest } from '../shared/hscroll'
 import { H_THUMB, H_TRACK, THUMB, clamp, scrollbar } from '../shared/scrollbar'
 import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, resolveTheme, withGitDefaults } from '../shared/settings'
-import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
+import { PaneButtons, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyFonts, parseTabbyScheme, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { GIT_PREFIX, SPLIT_PANE, gitKeyOf, prefixKeys, seat } from '../shared/layout'
@@ -125,7 +125,7 @@ let pluginOptions: PluginOptions | undefined
 // The Settings sheet (shared/settings-sheet.tsx): the explorer keeps the same
 // handlers in its own file, as the validator follows `$` only within one file.
 
-// The ⚙: opens the sheet here (from the other pane's sheet it moves, keeping
+// The Settings Button: opens the sheet here (from the other pane's sheet it moves, keeping
 // what was changed); on the open sheet it is `done`.
 const toggleSettings = async ($: EngineInterface): Promise<void> => {
   const ui = await read($, settingsUi)
@@ -924,12 +924,17 @@ export const register = (on: On, options?: PluginOptions): void => {
     const sel = onDefaultFg(t.surfaceHover)
     const lanes = lanePalette(t)
     const surface = e.surface
-    // The Settings ⚙ (the title row's right end, under the pane's close mark)
+    // Settings and Exit (the title row's right end, under the pane's close mark)
     // and its sheet, drawn last over the panel below the title row. The split
-    // pane has one ⚙, the Explorer's, and its sheet covers both halves.
-    const settingsButton = isSplit
+    // pane has one pair, the Explorer's, and its sheet covers both halves.
+    const paneButtons = isSplit
       ? undefined
-      : SettingsButton(elements, t, { surface, isOpen: sheet.open === PANE, onPress: () => void toggleSettings($) })
+      : PaneButtons(elements, t, {
+          surface,
+          isOpen: sheet.open === PANE,
+          onSettings: () => void toggleSettings($),
+          onExit: asleep(() => $.ui.close({ id: PANE })),
+        })
     const settingsSheet =
       !isSplit && sheet.open === PANE
         ? SettingsSheet(elements, t, {
@@ -962,7 +967,7 @@ export const register = (on: On, options?: PluginOptions): void => {
         <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
           <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center">
             <Text bold color={t.text}>{" Git"}</Text>
-            {settingsButton}
+            {paneButtons}
           </Box>
           <Text color={t.muted}>Not a git repository</Text>
           {settingsSheet}
@@ -985,7 +990,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // Each section is framed in the theme's border color, or the `/color` accent.
     const border = { borderStyle: 'round', borderColor: accentBorder ? t.accent : t.border } as const
     // One header line (the title, the panel tabs and the actions, its right
-    // end kept for the Settings ⚙; no interactive line: nothing asks) and one
+    // end kept for Settings and Exit; no interactive line: nothing asks) and one
     // footer row; the sections share the rest.
     const headerRows = 1
     const area = Math.max(4, bodyRows - headerRows - 1)
@@ -1796,7 +1801,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
         {/* The title, the panel tabs and the actions, 2 cells apart with a
             divider after the title and after the tabs, cut at the right end on
-            a narrow pane (kept for the Settings ⚙). */}
+            a narrow pane (kept for Settings and Exit). */}
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
           <Box key="header:tabs" flexDirection="row" gap={2} flexShrink={1} overflow="hidden">
             <Box flexShrink={0}>
@@ -1841,7 +1846,7 @@ export const register = (on: On, options?: PluginOptions): void => {
               })}
             </Box>
           </Box>
-          {settingsButton !== undefined && <Box flexShrink={0}>{settingsButton}</Box>}
+          {paneButtons !== undefined && <Box flexShrink={0}>{paneButtons}</Box>}
         </Box>
         {isDiff ? (
           filesAndPreview({

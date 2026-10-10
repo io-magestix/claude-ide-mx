@@ -1763,17 +1763,18 @@ for (const surface of ['terminal', 'desktop'] as const) {
     `* \x1f${String(i).padStart(40, '0')}\x1f${String(i).padStart(7, '0')}\x1f\x1fa\x1f2026-01-01\x1fc${i}`,
   ).join('\n')
 
-  test(`${surface}: git's ⚙ opens Settings on the title row; a default tab applies while none is chosen`, async ($, on) => {
+  test(`${surface}: git's Settings opens the sheet from the title row; a default tab applies while none is chosen`, async ($, on) => {
     const { ui, store } = await open($, on)
-    expect(await ui.find({ key: 'settings' })).toBeDefined()
+    expect((await ui.find({ key: 'settings' }))?.props.label).toBe('Settings')
+    expect((await ui.find({ key: 'exit' }))?.props.label).toBe('Exit')
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
-    // the title row and its ⚙ stay above the sheet
+    // the title row and its Settings Button stay above the sheet
     expect((await ui.find({ key: 'settings:sheet' }))?.props.top).toBe(1)
 
     await ui.press({ key: 'settings:tab:graph' })
     expect(await isOn(ui, 'tab:graph')).toBe(true)
-    // the ⚙ again is done
+    // Settings again is done
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
     expect(store.get('settings')).toEqual({ gitTab: 'graph' })

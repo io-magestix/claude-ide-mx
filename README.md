@@ -22,7 +22,7 @@ One pane, 20% of the window wide: the Explorer on top, Git below, with a draggab
 
 ## Settings
 
-Open them with ⚙ in the title row. The panels follow Claude Code's theme (on Tabby, its color scheme).
+Open them with `Settings` in the title row; `Exit` closes the pane. The panels follow Claude Code's theme (on Tabby, its color scheme).
 
 - Accent from `/color`, open on start and close on exit.
 - File icons: Nerd Font, Basic or Off. Nerd Font is chosen by default when Tabby's font is a Nerd Font.

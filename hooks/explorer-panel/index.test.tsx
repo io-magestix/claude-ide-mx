@@ -1370,6 +1370,42 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(closed).toBe(1)
   })
 
+  test(`${surface}: Exit closes the pane, and sleeps while the sheet is up`, async ($, on) => {
+    settingsStore(on)
+    fake(on)
+    const closed: string[] = []
+    on('ui.close', (_$, e) => {
+      closed.push(e.id)
+
+      return { value: undefined }
+    })
+    await $.session.start(start(surface))
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId: 'ide-explorer', viewport: VIEWPORT })
+    expect((await ui.find({ key: 'settings' }))?.props.label).toBe('Settings')
+    expect((await ui.find({ key: 'exit' }))?.props.label).toBe('Exit')
+    await ui.press({ key: 'settings' })
+    await ui.press({ key: 'exit' })
+    expect(closed).toEqual([])
+    await ui.press({ key: 'settings' })
+    await ui.press({ key: 'exit' })
+    expect(closed).toEqual(['ide-explorer'])
+  })
+
+  test(`${surface}: Exit over unsaved text puts up the bar instead`, async ($, on) => {
+    let closed = 0
+    on('ui.close', () => {
+      closed += 1
+
+      return { value: undefined }
+    })
+    const { ui, settle } = await editing($, on, surface, '/ed6', { 'a.ts': 'one\n' })
+    await ui.key({ key: 'x', in: 'editor' })
+    await settle()
+    await ui.press({ key: 'exit' })
+    expect(closed).toBe(0)
+    expect(await ui.find({ key: 'ask:save' })).toBeDefined()
+  })
+
   test(`${surface}: session.start restores the draft`, async ($, on) => {
     const { ui, settle, text, title } = await editing($, on, surface, '/ed6', { 'a.ts': 'one\n' })
     await ui.key({ key: 'x', in: 'editor' })
@@ -1828,7 +1864,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   const mountPane = ($: Engine, requestId: 'ide-explorer' | 'ide-git') =>
     $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PROPS, requestId, viewport: VIEWPORT })
 
-  test(`${surface}: the ⚙ opens Settings; a change applies at once, cancel puts it back, done saves`, async ($, on) => {
+  test(`${surface}: Settings opens the sheet; a change applies at once, cancel puts it back, done saves`, async ($, on) => {
     const store = settingsStore(on)
     fake(on)
     on('command.run', { command: 'color' }, () => ({ text: 'Session color set to: green' }))
@@ -1845,7 +1881,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
-    // only the pane whose ⚙ was pressed draws the sheet
+    // only the pane whose Settings was pressed draws the sheet
     expect(await git.find({ key: 'settings:sheet' })).toBeUndefined()
     // no blank labels: every sheet Button has one
     for (const b of await ui.findAll({ type: 'Button' })) {
@@ -1883,7 +1919,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await isActiveTab(ui, surface, 'files')).toBe(true)
     expect(await ui.find({ key: 'settings:sheet' })).toBeDefined()
 
-    // the ⚙ closes it, and the Buttons wake
+    // Settings closes it, and the Buttons wake
     await ui.press({ key: 'settings' })
     expect(await ui.find({ key: 'settings:sheet' })).toBeUndefined()
     await ui.press({ key: 'tab:unity' })
@@ -2788,9 +2824,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // the root, branch and counts: only Git's footer
     expect(await ui.find({ key: 'git/footer:counts' })).toBeDefined()
     expect(await ui.find({ key: 'footer:counts' })).toBeUndefined()
-    // one ⚙, the Explorer's
+    // one Settings and Exit pair, the Explorer's
     expect(await ui.find({ key: 'settings' })).toBeDefined()
     expect(await ui.find({ key: 'git/settings' })).toBeUndefined()
+    expect(await ui.find({ key: 'exit' })).toBeDefined()
+    expect(await ui.find({ key: 'git/exit' })).toBeUndefined()
     // no Button key drawn twice
     const keys = (await ui.findAll({ type: 'Button' })).map(b => b.key)
     expect(new Set(keys).size).toBe(keys.length)

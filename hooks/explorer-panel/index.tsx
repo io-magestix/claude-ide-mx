@@ -61,7 +61,7 @@ import { sliceCols, widest } from '../shared/hscroll'
 import { dragTo, layoutOf, splitAt } from '../shared/split'
 import { MIN_HALF_ROWS, SPLIT_PANE, SPLIT_TITLE, WINDOW_KEY, gitKeyOf, seat, splitColumns, splitRows } from '../shared/layout'
 import { DEFAULTS, SETTINGS_KEY, keymapNameOf, keysError, mergeKeys, resolveTheme, settingsOf } from '../shared/settings'
-import { SettingsButton, SettingsSheet } from '../shared/settings-sheet'
+import { PaneButtons, SettingsSheet } from '../shared/settings-sheet'
 import { THEME_POLL_MS, parseTabbyFonts, parseTabbyScheme, resetThemeEnv, tabbyConfigPaths, themeEnv } from '../shared/term-theme'
 import type { Theme } from '../shared/theme'
 import { Btn, Tabs, onDefaultFg } from '../shared/ui'
@@ -1351,7 +1351,7 @@ const toast = async ($: EngineInterface, text: string): Promise<void> => {
 // The Settings sheet (shared/settings-sheet.tsx). Git keeps the same handlers
 // in its own file: the validator follows `$` only within one file.
 
-// The ⚙: opens the sheet here (from either pane's sheet it moves, keeping
+// The Settings Button: opens the sheet here (from either pane's sheet it moves, keeping
 // what was changed); on the open sheet it is `done`.
 const toggleSettings = async ($: EngineInterface): Promise<void> => {
   const ui = await read($, settingsUi)
@@ -1511,6 +1511,14 @@ const finish = async (
   else if (confirm === 'mode' && isMode(pending)) await setMode($, pending)
   else if (confirm === 'pane') await $.ui.close({ id: host })
   $.ui.invalidate('ui.render')
+}
+
+// `Exit`: closes the pane as the engine's close mark does. The plugin's own
+// `$.ui.close` skips its `ui.close` hook, so the guard and the cleanup run here.
+const exitPane = async ($: EngineInterface, id: typeof PANE | typeof SPLIT_PANE): Promise<void> => {
+  if (await guarded($, 'pane')) return
+  await removeAllConverted($)
+  await $.ui.close({ id })
 }
 
 // The Edit border's `close`: back to Preview, asking first when unsaved.
@@ -2104,6 +2112,8 @@ export const register = (on: On, options?: PluginOptions): void => {
     const { Box, Text, Button, Code } = elements
     const Client = 'Client' in elements ? elements.Client : undefined
     host = e.requestId === SPLIT_PANE ? SPLIT_PANE : PANE
+    // The pane this drawing is for (`Exit` closes it; `host` may move on).
+    const pane = host
     const isSplit = host === SPLIT_PANE
     // The window's width when no `/ide-panels` measured it this load.
     if (seat.windowColumns === 0 && e.viewport !== undefined) seat.windowColumns = e.viewport.columns
@@ -2150,7 +2160,7 @@ export const register = (on: On, options?: PluginOptions): void => {
     // What the interactive line holds, one question at a time.
     const ask = edit?.conflict !== undefined ? 'conflict' : edit?.confirm !== undefined ? 'unsaved' : undefined
     // Header lines (the title row with the panel tabs and the actions, its
-    // right end kept for the Settings ⚙; the interactive line while it asks),
+    // right end kept for Settings and Exit; the interactive line while it asks),
     // then the bordered sections (2 rows of frame each).
     const headerRows = ask === undefined ? 1 : 2
     const sectionRows = Math.max(5, bodyRows - headerRows)
@@ -2566,7 +2576,7 @@ export const register = (on: On, options?: PluginOptions): void => {
       <Box flexDirection="column" width="100%" minHeight={bodyRows} backgroundColor={t.canvas}>
         {/* The title row: the title, the panel tabs and the actions, 2 cells
             apart with a divider after the title and after the tabs, cut at the
-            right end on a narrow pane (kept for the Settings ⚙). The active
+            right end on a narrow pane (kept for Settings and Exit). The active
             tab does nothing (a mode switch would close a clean editor and
             reset the scroll). */}
         <Box key="header" flexDirection="row" justifyContent="space-between" alignItems="center" height={1}>
@@ -2629,7 +2639,12 @@ export const register = (on: On, options?: PluginOptions): void => {
             )}
           </Box>
           <Box flexShrink={0}>
-            {SettingsButton(elements, t, { surface, isOpen: sheet.open === host, onPress: () => void toggleSettings($) })}
+            {PaneButtons(elements, t, {
+              surface,
+              isOpen: sheet.open === host,
+              onSettings: () => void toggleSettings($),
+              onExit: asleep(() => exitPane($, pane)),
+            })}
           </Box>
         </Box>
         {/* The interactive line, only while something asks: the question on
